@@ -1,0 +1,57 @@
+# Job Autofill + Tracker
+
+Local-first Chrome extension for filling job applications, drafting free-text screening answers from your profile, and tracking applications.
+
+## Features
+
+- WXT Manifest V3 extension skeleton with background worker, content script, side panel, and options page.
+- Deterministic profile-based field mapping for common application fields.
+- React-safe input filling via native setters and input/change/blur events.
+- Greenhouse, Lever, Ashby, LinkedIn, Indeed, and Comeet host detection with explicit click-to-fill.
+- Local profile/settings in `chrome.storage.local`.
+- Applications and answer memory in IndexedDB via Dexie.
+- Optional BYO OpenAI API key for batched AI free-text answers with an anti-fabrication prompt.
+- Side-panel profile editor, tracker kanban/table hybrid, follow-up dates, answer memory view, settings, and CSV export.
+
+## Privacy
+
+The extension is local-first. Profile data, settings, tracked applications, and answer memory are stored in Chrome extension storage and IndexedDB on your device.
+
+AI features are opt-in and require your own OpenAI API key. When enabled, the extension sends the relevant profile facts, job description text, application questions, and uploaded CV file data to OpenAI to draft answers or import profile fields. The API key is stored locally in Chrome extension storage.
+
+Tracked applications can include the questions and answers present on a submitted application form. Review exported CSV files before sharing them.
+
+## Permissions
+
+The extension includes built-in content-script matches for supported job sites:
+
+- Greenhouse
+- Lever
+- Ashby
+- LinkedIn Jobs
+- Indeed
+- Comeet
+
+It also requests broad `http://*/*` and `https://*/*` host permissions plus the `scripting` permission so the side panel can run user-initiated autofill on the active tab, including custom ATS domains such as company-hosted job portals. The injected script checks that the page looks like a job application surface before doing work.
+
+It requests access to `https://api.openai.com/*` for optional AI features.
+
+## Commands
+
+```powershell
+npm install
+npm run compile
+npm run dev
+npm run build
+npm run zip
+```
+
+Load the generated development extension from `.output/chrome-mv3` in Chrome.
+
+## Security Notes
+
+Run `npm audit` and `npm audit --omit=dev` before publishing a release. Dependency overrides are used only for patched transitive development packages.
+
+## License
+
+MIT

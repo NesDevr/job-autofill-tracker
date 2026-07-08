@@ -1,0 +1,40 @@
+{
+  "name": "job-autofill-tracker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wxt",
+    "build": "wxt build",
+    "zip": "wxt zip",
+    "compile": "tsc --noEmit",
+    "postinstall": "wxt prepare"
+  },
+  "dependencies": {
+    "dexie": "4.4.4",
+    "fuse.js": "7.4.2",
+    "lucide-react": "1.22.0",
+    "react": "19.2.7",
+    "react-dom": "19.2.7"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "4.3.2",
+    "@types/chrome": "0.1.13",
+    "@types/react": "19.2.7",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "5.2.0",
+    "@wxt-dev/module-react": "1.2.2",
+    "tailwindcss": "4.3.2",
+    "typescript": "6.0.3",
+    "vite": "7.3.6",
+    "wxt": "0.20.27"
+  },
+  "overrides": {
+    "shell-quote": "1.9.0",
+    "tmp": "0.2.7",
+    "uuid": "11.1.1",
+    "wxt": {
+      "esbuild": "0.28.1"
+    }
+  }
+}
