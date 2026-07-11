@@ -17,10 +17,10 @@ export default defineConfig({
     name: "Job Autofill + Tracker",
     description: "Fill job applications from a local profile, draft screening answers, and track submissions.",
     version: "0.1.0",
-    permissions: ["storage", "sidePanel", "activeTab", "downloads", "scripting"],
+    permissions: ["storage", "activeTab", "downloads", "scripting", "sidePanel"],
     host_permissions: ["https://*/*", "http://*/*", "https://api.openai.com/*"],
     action: {
-      default_title: "Job Autofill"
+      default_title: "Open Job Autofill"
     }
   },
   vite: () => ({
