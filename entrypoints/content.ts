@@ -21,14 +21,22 @@ export default defineContentScript({
     if (!isAllowedJobPage()) return;
     if (isTopPageWithEmbeddedJobForm()) return;
     chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, sendResponse) => {
-      if (message.kind !== "AUTOFILL_CURRENT_FORM") return false;
-      fillCurrentForm()
-        .then(sendResponse)
-        .catch((error: unknown) => {
-          const detail = error instanceof Error ? error.message : String(error);
-          sendResponse({ ok: false, error: detail });
-        });
-      return true;
+      if (message.kind === "AUTOFILL_CURRENT_FORM") {
+        fillCurrentForm()
+          .then(sendResponse)
+          .catch((error: unknown) => {
+            const detail = error instanceof Error ? error.message : String(error);
+            sendResponse({ ok: false, error: detail });
+          });
+        return true;
+      }
+
+      if (message.kind === "TRACK_CURRENT_APPLICATION") {
+        sendResponse({ ok: true, pending: queueTrackCurrentApplication() });
+        return false;
+      }
+
+      return false;
     });
     watchSubmit();
   }
@@ -508,10 +516,13 @@ function formMatchesApplication(form: HTMLFormElement): boolean {
 }
 
 function requestTrackCurrentApplication(): void {
+  const pending = queueTrackCurrentApplication();
+  showTrackPrompt(pending);
+}
+
+function queueTrackCurrentApplication(): PendingApplication {
   const context = getPageContext();
   const key = `${context.source}|${context.company}|${context.role}|${canonicalJobUrl(context.url)}`;
-  if (loggedSubmissionKeys.has(key)) return;
-  loggedSubmissionKeys.add(key);
 
   const application: Application = {
     company: context.company,
@@ -534,7 +545,109 @@ function requestTrackCurrentApplication(): void {
     application,
     createdAt: new Date().toISOString()
   };
-  void chrome.runtime.sendMessage({ kind: "QUEUE_PENDING_APPLICATION", pending } satisfies ExtensionMessage);
+  if (!loggedSubmissionKeys.has(key)) {
+    loggedSubmissionKeys.add(key);
+    void chrome.runtime.sendMessage({ kind: "QUEUE_PENDING_APPLICATION", pending } satisfies ExtensionMessage);
+  }
+  return pending;
+}
+
+function showTrackPrompt(pending: PendingApplication): void {
+  const existing = document.getElementById("job-autofill-track-prompt");
+  existing?.remove();
+
+  const prompt = document.createElement("aside");
+  prompt.id = "job-autofill-track-prompt";
+  prompt.setAttribute("role", "dialog");
+  prompt.setAttribute("aria-label", "Add application with Paste AI");
+  prompt.innerHTML = `
+    <div class="job-autofill-track-title">Add with Paste AI?</div>
+    <div class="job-autofill-track-body">${escapeHtml(pending.application.company)} - ${escapeHtml(pending.application.role)}</div>
+    <div class="job-autofill-track-actions">
+      <button type="button" data-action="skip">Dismiss</button>
+      <button type="button" data-action="paste">Paste AI</button>
+    </div>
+  `;
+
+  const style = document.createElement("style");
+  style.textContent = `
+    #job-autofill-track-prompt {
+      position: fixed;
+      right: 18px;
+      bottom: 18px;
+      z-index: 2147483647;
+      width: min(320px, calc(100vw - 36px));
+      border: 1px solid #1f2a33;
+      border-radius: 8px;
+      background: #fffaf2;
+      box-shadow: 0 18px 48px rgba(16, 24, 32, 0.24);
+      color: #101820;
+      font-family: Aptos, "Segoe UI", sans-serif;
+      padding: 12px;
+    }
+
+    #job-autofill-track-prompt .job-autofill-track-title {
+      font-size: 13px;
+      font-weight: 800;
+      margin-bottom: 4px;
+    }
+
+    #job-autofill-track-prompt .job-autofill-track-body {
+      color: #465360;
+      font-size: 12px;
+      line-height: 1.35;
+      margin-bottom: 10px;
+    }
+
+    #job-autofill-track-prompt .job-autofill-track-actions {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+
+    #job-autofill-track-prompt button {
+      border: 1px solid #c6b9a8;
+      border-radius: 7px;
+      background: #fffaf2;
+      color: #101820;
+      cursor: pointer;
+      font: inherit;
+      font-size: 12px;
+      font-weight: 800;
+      min-height: 32px;
+      padding: 0 10px;
+    }
+
+    #job-autofill-track-prompt button[data-action="paste"] {
+      border-color: #27745f;
+      background: #27745f;
+      color: #fffdf8;
+    }
+  `;
+  prompt.append(style);
+
+  prompt.addEventListener("click", (event) => {
+    const button = (event.target as HTMLElement | null)?.closest("button");
+    if (!button) return;
+    if (button.dataset.action === "paste") {
+      void chrome.runtime.sendMessage({ kind: "OPEN_TRACKER_PASTE", pending } satisfies ExtensionMessage);
+    } else {
+      void chrome.runtime.sendMessage({ kind: "REMOVE_PENDING_APPLICATION", id: pending.id } satisfies ExtensionMessage);
+    }
+    prompt.remove();
+  });
+
+  document.documentElement.append(prompt);
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (char) => {
+    if (char === "&") return "&amp;";
+    if (char === "<") return "&lt;";
+    if (char === ">") return "&gt;";
+    if (char === "\"") return "&quot;";
+    return "&#39;";
+  });
 }
 
 function canonicalJobUrl(url: string): string {

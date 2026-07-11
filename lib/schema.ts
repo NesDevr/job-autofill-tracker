@@ -63,6 +63,17 @@ export type ApplicationStatus =
   | "Rejected"
   | "Ghosted";
 
+export type CompensationPeriod = "year" | "month" | "hour" | "one-time" | "";
+export type CompensationCurrency = "MXN" | "USD" | "EUR" | "";
+
+export type Compensation = {
+  text: string;
+  currency: CompensationCurrency;
+  min?: number | null;
+  max?: number | null;
+  period: CompensationPeriod;
+};
+
 export type Application = {
   id?: number;
   company: string;
@@ -73,6 +84,7 @@ export type Application = {
   status: ApplicationStatus;
   location?: string;
   workMode?: "Remote" | "Hybrid" | "On-site" | "";
+  compensation?: Compensation;
   jobDescription?: string;
   resumeVersion?: string;
   answersUsed: Array<{ question: string; answer: string }>;
@@ -83,6 +95,12 @@ export type Application = {
 export type PendingApplication = {
   id: string;
   application: Application;
+  createdAt: string;
+};
+
+export type DashboardLaunch = {
+  tab: "tracker";
+  pendingId?: string;
   createdAt: string;
 };
 
@@ -156,8 +174,22 @@ export type QueuePendingApplicationRequest = {
   pending: PendingApplication;
 };
 
+export type RemovePendingApplicationRequest = {
+  kind: "REMOVE_PENDING_APPLICATION";
+  id: string;
+};
+
+export type OpenTrackerPasteRequest = {
+  kind: "OPEN_TRACKER_PASTE";
+  pending: PendingApplication;
+};
+
 export type AutofillCurrentFormRequest = {
   kind: "AUTOFILL_CURRENT_FORM";
+};
+
+export type TrackCurrentApplicationRequest = {
+  kind: "TRACK_CURRENT_APPLICATION";
 };
 
 export type PageContext = {
@@ -172,7 +204,10 @@ export type ExtensionMessage =
   | MapFieldsRequest
   | LogApplicationRequest
   | QueuePendingApplicationRequest
-  | AutofillCurrentFormRequest;
+  | RemovePendingApplicationRequest
+  | OpenTrackerPasteRequest
+  | AutofillCurrentFormRequest
+  | TrackCurrentApplicationRequest;
 
 export const EMPTY_PROFILE: Profile = {
   identity: {

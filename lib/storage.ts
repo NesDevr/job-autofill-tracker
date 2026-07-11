@@ -1,8 +1,9 @@
-import { DEFAULT_SETTINGS, EMPTY_PROFILE, type PendingApplication, type Profile, type Settings } from "./schema";
+import { DEFAULT_SETTINGS, EMPTY_PROFILE, type DashboardLaunch, type PendingApplication, type Profile, type Settings } from "./schema";
 
 const PROFILE_KEY = "profile";
 const SETTINGS_KEY = "settings";
 const PENDING_APPLICATIONS_KEY = "pendingApplications";
+const DASHBOARD_LAUNCH_KEY = "dashboardLaunch";
 
 export async function getProfile(): Promise<Profile> {
   const result = await chrome.storage.local.get(PROFILE_KEY);
@@ -70,4 +71,17 @@ export async function removePendingApplication(id: string): Promise<void> {
   await chrome.storage.local.set({
     [PENDING_APPLICATIONS_KEY]: pendingApplications.filter((item) => item.id !== id)
   });
+}
+
+export async function setDashboardLaunch(launch: DashboardLaunch): Promise<void> {
+  await chrome.storage.local.set({ [DASHBOARD_LAUNCH_KEY]: launch });
+}
+
+export async function getDashboardLaunch(): Promise<DashboardLaunch | undefined> {
+  const result = await chrome.storage.local.get(DASHBOARD_LAUNCH_KEY);
+  return result[DASHBOARD_LAUNCH_KEY] as DashboardLaunch | undefined;
+}
+
+export async function clearDashboardLaunch(): Promise<void> {
+  await chrome.storage.local.remove(DASHBOARD_LAUNCH_KEY);
 }

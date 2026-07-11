@@ -1,16 +1,12 @@
 import { draftAnswers } from "../lib/ai";
 import { db } from "../lib/db";
 import { deterministicValue, memoryValue } from "../lib/mapping";
-import { getProfile, getSettings, queuePendingApplication } from "../lib/storage";
+import { getProfile, getSettings, queuePendingApplication, removePendingApplication, setDashboardLaunch } from "../lib/storage";
 import type { ExtensionMessage, FieldFill } from "../lib/schema";
 
 export default defineBackground({
   main() {
-    chrome.runtime.onInstalled.addListener(() => {
-      chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch((error) => {
-        console.error("Unable to set side panel behavior", error);
-      });
-    });
+    void chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
 
     chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, sendResponse) => {
       handleMessage(message)
@@ -35,8 +31,24 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
     return { ok: true };
   }
 
+  if (message.kind === "REMOVE_PENDING_APPLICATION") {
+    await removePendingApplication(message.id);
+    return { ok: true };
+  }
+
+  if (message.kind === "OPEN_TRACKER_PASTE") {
+    await queuePendingApplication(message.pending);
+    await setDashboardLaunch({ tab: "tracker", pendingId: message.pending.id, createdAt: new Date().toISOString() });
+    await chrome.runtime.openOptionsPage();
+    return { ok: true };
+  }
+
   if (message.kind === "AUTOFILL_CURRENT_FORM") {
     return { ok: false, error: "Autofill must be sent to a page tab." };
+  }
+
+  if (message.kind === "TRACK_CURRENT_APPLICATION") {
+    return { ok: false, error: "Tracking must be sent to a page tab." };
   }
 
   const profile = await getProfile();

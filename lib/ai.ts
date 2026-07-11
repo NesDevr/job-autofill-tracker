@@ -1,4 +1,5 @@
 import { rememberAnswer } from "./mapping";
+import { normalizeCompensationCurrency } from "./compensation";
 import { normalizeProfilePhone } from "./profileValues";
 import { EMPTY_PROFILE, type Application, type FieldDescriptor, type FieldFill, type Profile, type Settings } from "./schema";
 
@@ -25,11 +26,20 @@ type CvProfileDraft = Omit<Profile, "skills"> & {
   }>;
 };
 
-type JobPostingDraft = Pick<Application, "company" | "role" | "location" | "workMode" | "jobDescription" | "source" | "jobUrl">;
+type JobPostingDraft = Pick<Application, "company" | "role" | "location" | "workMode" | "compensation" | "jobDescription" | "source" | "jobUrl">;
 
 const answerSchema = {
   type: "object",
   additionalProperties: { type: "string" }
+};
+
+const singleAnswerSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["answer"],
+  properties: {
+    answer: { type: "string" }
+  }
 };
 
 const cvProfileSchema = {
@@ -153,12 +163,24 @@ const cvProfileSchema = {
 const jobPostingSchema = {
   type: "object",
   additionalProperties: false,
-  required: ["company", "role", "location", "workMode", "jobDescription", "source", "jobUrl"],
+  required: ["company", "role", "location", "workMode", "compensation", "jobDescription", "source", "jobUrl"],
   properties: {
     company: { type: "string" },
     role: { type: "string" },
     location: { type: "string" },
     workMode: { type: "string", enum: ["Remote", "Hybrid", "On-site", ""] },
+    compensation: {
+      type: "object",
+      additionalProperties: false,
+      required: ["text", "currency", "min", "max", "period"],
+      properties: {
+        text: { type: "string" },
+        currency: { type: "string", enum: ["MXN", "USD", "EUR", ""] },
+        min: { type: ["number", "null"] },
+        max: { type: ["number", "null"] },
+        period: { type: "string", enum: ["year", "month", "hour", "one-time", ""] }
+      }
+    },
     jobDescription: { type: "string" },
     source: { type: "string" },
     jobUrl: { type: "string" }
@@ -211,6 +233,36 @@ export async function draftAnswers(
   return fills;
 }
 
+export async function draftSingleAnswer(
+  question: string,
+  profile: Profile,
+  settings: Settings
+): Promise<string> {
+  if (!settings.apiKey) throw new Error("OpenAI API key is required before drafting an answer.");
+  if (!question.trim()) throw new Error("Paste a question first.");
+
+  const text = await createOpenAiJson(settings, {
+    instructions:
+      "Draft a concise professional job-application answer in first person. Write like a capable human, not a formal template. Use only the candidate facts provided. Do not invent tools, employers, years, credentials, locations, authorization, salary, or availability. If a necessary fact is missing, include a brief [TODO: ...] placeholder instead of guessing. Return only the answer text.",
+    input: [
+      {
+        role: "user",
+        content: JSON.stringify({
+          candidateFacts: profile,
+          question: question.trim()
+        })
+      }
+    ],
+    schemaName: "single_application_answer",
+    schema: singleAnswerSchema,
+    maxOutputTokens: 700
+  });
+
+  const parsed = JSON.parse(text) as { answer: string };
+  await rememberAnswer(question, parsed.answer);
+  return parsed.answer;
+}
+
 export async function importProfileFromCv(
   fileName: string,
   fileDataUrl: string,
@@ -261,14 +313,21 @@ export async function draftApplicationFromJobPosting(
 
   const text = await createOpenAiJson(settings, {
     instructions:
-      "Extract a job-tracker entry from unstructured job posting text. Use only facts present in the pasted text or provided page URL. Do not invent company, role, location, or work mode. If a value is missing, use an empty string. Keep jobDescription concise but useful, preserving responsibilities, requirements, and compensation details when present.",
+      "Extract a job-tracker entry from unstructured job posting text. Use only facts present in the pasted text or provided page URL. Do not invent company, role, location, work mode, or compensation. If a value is missing, use an empty string or null for numeric compensation bounds. Compensation text should preserve the original salary/rate wording; structured min/max should be plain numbers when explicitly present. Currency must be MXN, USD, EUR, or an empty string if unknown. If currency is not explicit and the period is monthly, amounts over 10000 are usually MXN and amounts under 10000 are usually USD. If the period is yearly, use the yearly equivalent threshold of 120000.",
     input: [
       {
         role: "user",
         content: JSON.stringify({
           pageUrl,
           postingText,
-          allowedWorkModes: ["Remote", "Hybrid", "On-site", ""]
+          allowedWorkModes: ["Remote", "Hybrid", "On-site", ""],
+          compensationShape: {
+            text: "$100,000-$130,000/year",
+            currency: "USD",
+            min: 100000,
+            max: 130000,
+            period: "year"
+          }
         })
       }
     ],
@@ -277,7 +336,11 @@ export async function draftApplicationFromJobPosting(
     maxOutputTokens: 2200
   });
 
-  return JSON.parse(text) as JobPostingDraft;
+  const draft = JSON.parse(text) as JobPostingDraft;
+  return {
+    ...draft,
+    compensation: normalizeCompensationCurrency(draft.compensation)
+  };
 }
 
 async function createOpenAiJson(
