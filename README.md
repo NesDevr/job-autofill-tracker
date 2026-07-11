@@ -4,14 +4,17 @@ Local-first Chrome extension for filling job applications, drafting free-text sc
 
 ## Features
 
-- WXT Manifest V3 extension skeleton with background worker, content script, side panel, and options page.
+- WXT Manifest V3 extension skeleton with background worker, content script, quick side panel, and full dashboard page.
 - Deterministic profile-based field mapping for common application fields.
 - React-safe input filling via native setters and input/change/blur events.
 - Greenhouse, Lever, Ashby, LinkedIn, Indeed, and Comeet host detection with explicit click-to-fill.
+- Floating post-submit prompt to confirm whether a detected application should be saved to tracking.
+- Side panel tracking panel for manual tracker rows or AI parsing from pasted job postings.
+- Hybrid compensation tracking with a visible compensation field plus structured currency, range, and period fields.
 - Local profile/settings in `chrome.storage.local`.
 - Applications and answer memory in IndexedDB via Dexie.
 - Optional BYO OpenAI API key for batched AI free-text answers with an anti-fabrication prompt.
-- Side-panel profile editor, tracker kanban/table hybrid, follow-up dates, answer memory view, settings, and CSV export.
+- Full dashboard profile editor, tracker kanban/table hybrid, follow-up dates, answer memory view, settings, and CSV export.
 
 ## Privacy
 
