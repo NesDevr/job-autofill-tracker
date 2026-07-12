@@ -1,12 +1,13 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { BriefcaseBusiness, Building2, CalendarClock, ChevronDown, ChevronRight, Download, FileText, KeyRound, ListFilter, MapPin, Plus, Save, Search, Sparkles, Trash2, Upload, UserRound, X } from "lucide-react";
-import { draftApplicationFromJobPosting, importProfileFromCv } from "../../lib/ai";
+import { BriefcaseBusiness, Building2, CalendarClock, ChevronDown, ChevronRight, Download, FileText, KeyRound, ListFilter, MapPin, Plus, Save, Search, Sparkles, Trash2, Upload, UserRound, Wand2, X } from "lucide-react";
+import { draftApplicationFromJobPosting, draftSingleAnswer, importProfileFromCv } from "../../lib/ai";
 import { normalizeCompensationCurrency } from "../../lib/compensation";
 import { db } from "../../lib/db";
 import { questionHash } from "../../lib/mapping";
-import { EMPTY_PROFILE, type AnswerMemory, type Application, type ApplicationStatus, type CompensationCurrency, type CompensationPeriod, type PendingApplication, type Profile, type Settings } from "../../lib/schema";
+import { EMPTY_PROFILE, type AnswerMemory, type Application, type ApplicationStatus, type CompensationCurrency, type CompensationPeriod, type PendingApplication, type Profile, type Settings, type ThemeMode } from "../../lib/schema";
 import { clearDashboardLaunch, getDashboardLaunch, getPendingApplications, getProfile, getSettings, removePendingApplication, saveProfile, saveSettings } from "../../lib/storage";
+import { applyTheme } from "../../lib/theme";
 import "./styles.css";
 
 const statuses: ApplicationStatus[] = ["Saved", "Applied", "Screen", "Interview", "Offer", "Rejected", "Ghosted"];
@@ -19,9 +20,11 @@ function App() {
   const [applications, setApplications] = useState<Application[]>([]);
   const [pendingApplications, setPendingApplications] = useState<PendingApplication[]>([]);
   const [memories, setMemories] = useState<AnswerMemory[]>([]);
-  const [savedAt, setSavedAt] = useState("");
+  const [profileSaveStatus, setProfileSaveStatus] = useState("Saved");
   const [importStatus, setImportStatus] = useState("");
   const [launchPendingId, setLaunchPendingId] = useState<string | undefined>();
+  const skipNextProfileSave = useRef(true);
+  const profileSaveTimer = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     void loadInitialState();
@@ -30,11 +33,29 @@ function App() {
       if (areaName !== "local") return;
       if (changes.pendingApplications) void refresh();
       if (changes.dashboardLaunch) void consumeDashboardLaunch();
+      if (changes.settings) void refresh();
     };
 
     chrome.storage.onChanged.addListener(handleStorageChange);
     return () => chrome.storage.onChanged.removeListener(handleStorageChange);
   }, []);
+
+  useEffect(() => {
+    if (skipNextProfileSave.current) {
+      skipNextProfileSave.current = false;
+      return;
+    }
+
+    window.clearTimeout(profileSaveTimer.current);
+    setProfileSaveStatus("Saving...");
+    profileSaveTimer.current = window.setTimeout(() => {
+      void saveProfile(profile)
+        .then(() => setProfileSaveStatus(`Saved ${new Date().toLocaleTimeString()}`))
+        .catch((error: unknown) => setProfileSaveStatus(error instanceof Error ? error.message : String(error)));
+    }, 550);
+
+    return () => window.clearTimeout(profileSaveTimer.current);
+  }, [profile]);
 
   async function loadInitialState() {
     await refresh();
@@ -50,20 +71,19 @@ function App() {
   }
 
   async function refresh() {
+    const nextSettings = await getSettings();
+    skipNextProfileSave.current = true;
     setProfile(await getProfile());
-    setSettings(await getSettings());
+    setSettings(nextSettings);
+    applyTheme(nextSettings.theme);
     setApplications(await db.applications.orderBy("dateApplied").reverse().toArray());
     setPendingApplications(await getPendingApplications());
     setMemories(await db.answerMemory.orderBy("lastUsed").reverse().toArray());
   }
 
-  async function persistProfile() {
-    await saveProfile(profile);
-    setSavedAt(new Date().toLocaleTimeString());
-  }
-
   async function persistSettings(next: Settings) {
     setSettings(next);
+    applyTheme(next.theme);
     await saveSettings(next);
   }
 
@@ -76,7 +96,7 @@ function App() {
       const draft = await importProfileFromCv(file.name, fileDataUrl, profile, settings);
       setProfile(draft);
       await saveProfile(draft);
-      setSavedAt(new Date().toLocaleTimeString());
+      setProfileSaveStatus(`Saved ${new Date().toLocaleTimeString()}`);
       setImportStatus("Profile imported and saved for autofill.");
     } catch (error) {
       setImportStatus(error instanceof Error ? error.message : String(error));
@@ -93,9 +113,6 @@ function App() {
           <p className="eyebrow">Local-first job ops</p>
           <h1>Autofill desk</h1>
         </div>
-        <button className="iconButton" title="Save profile" onClick={persistProfile}>
-          <Save size={17} />
-        </button>
       </header>
 
       <section className="metrics">
@@ -115,10 +132,9 @@ function App() {
         <ProfilePanel
           profile={profile}
           setProfile={setProfile}
-          savedAt={savedAt}
+          saveStatus={profileSaveStatus}
           importStatus={importStatus}
           onImportCv={importCv}
-          onSave={persistProfile}
         />
       )}
       {tab === "tracker" && (
@@ -157,17 +173,15 @@ function Tab({ active, onClick, icon, label }: { active: boolean; onClick: () =>
 function ProfilePanel({
   profile,
   setProfile,
-  savedAt,
+  saveStatus,
   importStatus,
-  onImportCv,
-  onSave
+  onImportCv
 }: {
   profile: Profile;
   setProfile: (profile: Profile) => void;
-  savedAt: string;
+  saveStatus: string;
   importStatus: string;
   onImportCv: (file: File) => Promise<void>;
-  onSave: () => Promise<void>;
 }) {
   const skillsText = useMemo(
     () =>
@@ -245,9 +259,9 @@ function ProfilePanel({
       <div className="sectionHeader">
         <div>
           <h2>Master profile</h2>
-          <p>Canonical facts only. Importing a CV creates a reviewable draft before you save.</p>
+          <p>Canonical facts only. Changes save automatically.</p>
         </div>
-        {savedAt && <span className="saveStamp">Saved {savedAt}</span>}
+        <span className="saveStamp">{saveStatus}</span>
       </div>
 
       <label className="importCv">
@@ -255,10 +269,6 @@ function ProfilePanel({
         <span>Import CV PDF</span>
         <input type="file" accept="application/pdf" onChange={(event) => void importSelectedCv(event)} />
       </label>
-      <button className="saveProfileButton" onClick={() => void onSave()}>
-        <Save size={16} />
-        Save profile for autofill
-      </button>
       {importStatus && <p className="saveStamp">{importStatus}</p>}
 
       <div className="grid two">
@@ -800,6 +810,7 @@ function MemoryPanel({ memories, refresh }: { memories: AnswerMemory[]; refresh:
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editDraft, setEditDraft] = useState(emptyDraft);
   const [status, setStatus] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
 
   async function saveNewAnswer() {
     const questionText = draft.questionText.trim();
@@ -828,6 +839,28 @@ function MemoryPanel({ memories, refresh }: { memories: AnswerMemory[]; refresh:
     }
     setDraft(emptyDraft);
     await refresh();
+  }
+
+  async function addWithAi() {
+    const questionText = draft.questionText.trim();
+    if (!questionText) {
+      setStatus("Question is required before using AI.");
+      return;
+    }
+
+    setAiBusy(true);
+    setStatus("Drafting from your profile...");
+    try {
+      const [profile, settings] = await Promise.all([getProfile(), getSettings()]);
+      const answer = await draftSingleAnswer(questionText, profile, settings);
+      setDraft({ questionText: "", answer: "" });
+      setStatus(`AI answer added: ${answer.slice(0, 70)}${answer.length > 70 ? "..." : ""}`);
+      await refresh();
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error));
+    } finally {
+      setAiBusy(false);
+    }
   }
 
   function startEditing(memory: AnswerMemory) {
@@ -890,6 +923,10 @@ function MemoryPanel({ memories, refresh }: { memories: AnswerMemory[]; refresh:
         </label>
         <div className="answerEditorActions">
           {status && <span>{status}</span>}
+          <button className="ai" disabled={aiBusy} onClick={() => void addWithAi()}>
+            <Wand2 size={15} />
+            {aiBusy ? "Adding..." : "Add with AI"}
+          </button>
           <button onClick={() => void saveNewAnswer()}>
             <Plus size={15} />
             Add answer
@@ -946,6 +983,13 @@ function SettingsPanel({ settings, save }: { settings: Settings; save: (settings
       <div className="toggles">
         <label><input type="checkbox" checked={settings.aiEnabled} onChange={(event) => void save({ ...settings, aiEnabled: event.target.checked })} /> AI drafts</label>
       </div>
+      <label className="field">
+        <span>Theme</span>
+        <select value={settings.theme} onChange={(event) => void save({ ...settings, theme: event.target.value as ThemeMode })}>
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+        </select>
+      </label>
       <Field label="OpenAI API key" type="password" value={settings.apiKey} onChange={(value) => void save({ ...settings, apiKey: value })} />
       <Field label="Model" value={settings.model} onChange={(value) => void save({ ...settings, model: value })} />
       <div className="siteGrid">
