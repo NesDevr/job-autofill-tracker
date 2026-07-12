@@ -900,14 +900,14 @@ textarea:focus {
 }
 
 :root[data-theme="dark"] {
-  color: #e8ece8;
-  background: #121716;
+  color: #f4f7fb;
+  background: #0d1117;
 }
 
 :root[data-theme="dark"] body {
   background:
-    linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px),
-    linear-gradient(#151b19, #0f1413);
+    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(#111827, #0b0f17);
   background-size: 22px 22px, auto;
 }
 
@@ -924,7 +924,7 @@ textarea:focus {
 :root[data-theme="dark"] .statusFilter > span,
 :root[data-theme="dark"] .cardMeta,
 :root[data-theme="dark"] .columnEmpty {
-  color: #aeb9b2 !important;
+  color: #c3ceda !important;
 }
 
 :root[data-theme="dark"] h1,
@@ -935,7 +935,7 @@ textarea:focus {
 :root[data-theme="dark"] .applicationCard .appSummary strong,
 :root[data-theme="dark"] .answerHeader strong,
 :root[data-theme="dark"] .answer strong {
-  color: #f3f6f2;
+  color: #f8fafc;
 }
 
 :root[data-theme="dark"] .metric,
@@ -949,8 +949,8 @@ textarea:focus {
 :root[data-theme="dark"] .pendingApplication,
 :root[data-theme="dark"] .siteGrid label,
 :root[data-theme="dark"] .toggles label {
-  border-color: #34433d;
-  background: rgba(28, 36, 33, 0.86);
+  border-color: #334155;
+  background: rgba(22, 31, 45, 0.94);
 }
 
 :root[data-theme="dark"] input,
@@ -961,14 +961,14 @@ textarea:focus {
 :root[data-theme="dark"] .answerEditor textarea,
 :root[data-theme="dark"] .answerEditForm input,
 :root[data-theme="dark"] .answerEditForm textarea {
-  border-color: #3f5149;
-  background: #121816;
-  color: #eef3ee;
+  border-color: #475569;
+  background: #0f172a;
+  color: #f8fafc;
 }
 
 :root[data-theme="dark"] input::placeholder,
 :root[data-theme="dark"] textarea::placeholder {
-  color: #74847c;
+  color: #94a3b8;
 }
 
 :root[data-theme="dark"] .iconButton,
@@ -981,9 +981,9 @@ textarea:focus {
 :root[data-theme="dark"] .statusFilterActions button,
 :root[data-theme="dark"] .statusChip,
 :root[data-theme="dark"] .columnCount {
-  border-color: #3f5149;
-  background: #1b2421;
-  color: #e8ece8;
+  border-color: #475569;
+  background: #1e293b;
+  color: #f1f5f9;
 }
 
 :root[data-theme="dark"] .tab.active,
@@ -991,55 +991,55 @@ textarea:focus {
 :root[data-theme="dark"] .pendingActions button.primary,
 :root[data-theme="dark"] .answerEditorActions button,
 :root[data-theme="dark"] .answerActions button:first-child {
-  border-color: #4ca483;
-  background: #2f7b63;
-  color: #f6fff9;
+  border-color: #34d399;
+  background: #047857;
+  color: #ecfdf5;
 }
 
 :root[data-theme="dark"] .answerEditorActions button.ai {
-  border-color: #c2862b;
-  background: #9b671b;
+  border-color: #f59e0b;
+  background: #b45309;
 }
 
 :root[data-theme="dark"] .statusFilter {
-  border-color: #354640;
-  background: #18201e;
+  border-color: #334155;
+  background: #111827;
 }
 
 :root[data-theme="dark"] .statusChip.active {
-  border-color: #5aa88d;
-  background: #20352e;
-  color: #d9f8ec;
+  border-color: #34d399;
+  background: #064e3b;
+  color: #d1fae5;
 }
 
 :root[data-theme="dark"] .applicationBoard {
-  border-color: #303d38;
-  background: #111816;
+  border-color: #334155;
+  background: #0b1220;
   box-shadow: 0 18px 42px rgba(0, 0, 0, 0.28);
 }
 
 :root[data-theme="dark"] .boardColumn {
-  border-color: #303d38;
-  background: linear-gradient(180deg, rgba(25, 33, 30, 0.94), rgba(19, 26, 24, 0.96));
+  border-color: #334155;
+  background: linear-gradient(180deg, rgba(17, 24, 39, 0.98), rgba(15, 23, 42, 0.98));
 }
 
 :root[data-theme="dark"] .boardColumn.dragReady:hover {
-  background: #1f332c;
+  background: #172554;
 }
 
 :root[data-theme="dark"] .boardColumnHeader {
-  border-color: rgba(232, 236, 232, 0.12);
-  background: rgba(24, 32, 29, 0.96);
+  border-color: rgba(203, 213, 225, 0.16);
+  background: rgba(15, 23, 42, 0.97);
 }
 
 :root[data-theme="dark"] .applicationCard {
-  border-color: #33433d;
-  background: #1b2421;
+  border-color: #334155;
+  background: #162033;
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.24);
 }
 
 :root[data-theme="dark"] .applicationCard:hover {
-  border-color: #5a756a;
+  border-color: #64748b;
   box-shadow: 0 10px 26px rgba(0, 0, 0, 0.34);
 }
 
@@ -1050,12 +1050,12 @@ textarea:focus {
 :root[data-theme="dark"] .pasteActions span,
 :root[data-theme="dark"] .saveStamp,
 :root[data-theme="dark"] .metric span {
-  color: #b8c3bd;
+  color: #d1d8e2;
 }
 
 :root[data-theme="dark"] .rowIconButton.danger,
 :root[data-theme="dark"] .answerActions button.danger {
-  border-color: #61373f;
-  background: #2b181b;
-  color: #ffb4c1;
+  border-color: #7f1d1d;
+  background: #3f1518;
+  color: #fecdd3;
 }
