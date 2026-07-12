@@ -74,6 +74,8 @@ export type Compensation = {
   period: CompensationPeriod;
 };
 
+export type ThemeMode = "light" | "dark";
+
 export type Application = {
   id?: number;
   company: string;
@@ -149,6 +151,7 @@ export type Settings = {
   provider: "openai";
   apiKey: string;
   model: string;
+  theme: ThemeMode;
   enabledSites: {
     greenhouse: boolean;
     lever: boolean;
@@ -254,6 +257,7 @@ export const DEFAULT_SETTINGS: Settings = {
   provider: "openai",
   apiKey: "",
   model: "gpt-5.4-mini",
+  theme: "light",
   enabledSites: {
     greenhouse: true,
     lever: true,

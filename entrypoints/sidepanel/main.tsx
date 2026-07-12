@@ -7,6 +7,7 @@ import { sendAutofillMessage } from "../../lib/autofill";
 import { db } from "../../lib/db";
 import type { ApplicationStatus, CompensationCurrency, CompensationPeriod } from "../../lib/schema";
 import { getPendingApplications, getProfile, getSettings } from "../../lib/storage";
+import { applyTheme } from "../../lib/theme";
 import "./styles.css";
 
 type SidePanelStats = {
@@ -42,8 +43,25 @@ function SidePanel() {
   const [status, setStatus] = useState("");
 
   useEffect(() => {
-    void loadStats();
+    void loadInitialState();
+
+    const handleStorageChange = (changes: Record<string, chrome.storage.StorageChange>, areaName: string) => {
+      if (areaName !== "local" || !changes.settings) return;
+      void applySavedTheme();
+    };
+
+    chrome.storage.onChanged.addListener(handleStorageChange);
+    return () => chrome.storage.onChanged.removeListener(handleStorageChange);
   }, []);
+
+  async function loadInitialState() {
+    await Promise.all([loadStats(), applySavedTheme()]);
+  }
+
+  async function applySavedTheme() {
+    const settings = await getSettings();
+    applyTheme(settings.theme);
+  }
 
   async function loadStats() {
     const [applications, pendingApplications] = await Promise.all([
