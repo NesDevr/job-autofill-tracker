@@ -175,6 +175,31 @@ h3 {
   gap: 12px;
 }
 
+.profileSection {
+  display: grid;
+  gap: 10px;
+  border: 1px solid #d8cdbc;
+  border-radius: 10px;
+  background: rgba(255, 250, 242, 0.68);
+  padding: 12px;
+}
+
+.profileSectionHeading h3,
+.profileSectionHeading p {
+  margin: 0;
+}
+
+.profileSectionHeading h3 {
+  font-size: 14px;
+}
+
+.profileSectionHeading p {
+  margin-top: 3px;
+  color: #64717d;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
 .sectionHeader p,
 .empty p {
   color: #5e6a76;
@@ -385,6 +410,11 @@ textarea:focus {
 
 .importCv input {
   display: none;
+}
+
+.importCv.secondaryUpload {
+  border-color: #8a5b12;
+  color: #744b0e;
 }
 
 .applicationList {
@@ -940,6 +970,7 @@ textarea:focus {
 
 :root[data-theme="dark"] .metric,
 :root[data-theme="dark"] .panel,
+:root[data-theme="dark"] .profileSection,
 :root[data-theme="dark"] .appRow,
 :root[data-theme="dark"] .answer,
 :root[data-theme="dark"] .empty,
@@ -951,6 +982,15 @@ textarea:focus {
 :root[data-theme="dark"] .toggles label {
   border-color: #334155;
   background: rgba(22, 31, 45, 0.94);
+}
+
+:root[data-theme="dark"] .profileSectionHeading p {
+  color: #c3ceda;
+}
+
+:root[data-theme="dark"] .importCv.secondaryUpload {
+  border-color: #d97706;
+  color: #fed7aa;
 }
 
 :root[data-theme="dark"] input,

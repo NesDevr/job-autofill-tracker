@@ -94,8 +94,17 @@ function App() {
       const fileDataUrl = await readFileDataUrl(file);
       setImportStatus("Asking OpenAI...");
       const draft = await importProfileFromCv(file.name, fileDataUrl, profile, settings);
-      setProfile(draft);
-      await saveProfile(draft);
+      const profileWithResume: Profile = {
+        ...draft,
+        resumeFileRef: file.name,
+        resumeFile: {
+          name: file.name,
+          type: file.type || "application/pdf",
+          dataUrl: fileDataUrl
+        }
+      };
+      setProfile(profileWithResume);
+      await saveProfile(profileWithResume);
       setProfileSaveStatus(`Saved ${new Date().toLocaleTimeString()}`);
       setImportStatus("Profile imported and saved for autofill.");
     } catch (error) {
@@ -205,7 +214,12 @@ function ProfilePanel({
   );
 
   function update(path: string, value: string | boolean) {
-    const clone = structuredClone(profile);
+    const { resumeFile, coverLetterFile, ...profileFacts } = profile;
+    const clone = {
+      ...structuredClone(profileFacts),
+      resumeFile,
+      coverLetterFile
+    } as Profile;
     const keys = path.split(".");
     let cursor: Record<string, unknown> = clone as unknown as Record<string, unknown>;
     for (const key of keys.slice(0, -1)) cursor = cursor[key] as Record<string, unknown>;
@@ -254,6 +268,20 @@ function ProfilePanel({
     await onImportCv(file);
   }
 
+  async function storeCoverLetter(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setProfile({
+      ...profile,
+      coverLetterFile: {
+        name: file.name,
+        type: file.type || "application/pdf",
+        dataUrl: await readFileDataUrl(file)
+      }
+    });
+  }
+
   return (
     <section className="panel">
       <div className="sectionHeader">
@@ -269,30 +297,90 @@ function ProfilePanel({
         <span>Import CV PDF</span>
         <input type="file" accept="application/pdf" onChange={(event) => void importSelectedCv(event)} />
       </label>
+      <label className="importCv secondaryUpload">
+        <Upload size={16} />
+        <span>{profile.coverLetterFile ? `Cover letter: ${profile.coverLetterFile.name}` : "Store cover letter"}</span>
+        <input type="file" accept="application/pdf,.doc,.docx" onChange={(event) => void storeCoverLetter(event)} />
+      </label>
       {importStatus && <p className="saveStamp">{importStatus}</p>}
 
-      <div className="grid two">
+      <div className="profileSection">
+        <div className="profileSectionHeading">
+          <h3>Identity & contact</h3>
+          <p>Reusable facts copied directly into applications.</p>
+        </div>
+        <div className="grid two">
         <Field label="First name" value={profile.identity.firstName} onChange={(value) => update("identity.firstName", value)} />
+        <Field label="Middle name" value={profile.identity.middleName} onChange={(value) => update("identity.middleName", value)} />
         <Field label="Last name" value={profile.identity.lastName} onChange={(value) => update("identity.lastName", value)} />
         <Field label="Email" value={profile.identity.email} onChange={(value) => update("identity.email", value)} />
+        <Field label="Phone country code" value={profile.identity.phoneCountryCode} onChange={(value) => update("identity.phoneCountryCode", value)} />
         <Field label="Phone" value={profile.identity.phone} onChange={(value) => update("identity.phone", value)} />
+        <Field label="Address line 1" value={profile.identity.address.line1} onChange={(value) => update("identity.address.line1", value)} />
+        <Field label="Address line 2" value={profile.identity.address.line2} onChange={(value) => update("identity.address.line2", value)} />
+        <Field label="ZIP / postal code" value={profile.identity.address.postalCode} onChange={(value) => update("identity.address.postalCode", value)} />
         <Field label="City" value={profile.identity.location.city} onChange={(value) => update("identity.location.city", value)} />
         <Field label="State" value={profile.identity.location.state ?? "Tamaulipas"} onChange={(value) => update("identity.location.state", value)} />
         <Field label="Country" value={profile.identity.location.country} onChange={(value) => update("identity.location.country", value)} />
-      </div>
-
-      <div className="grid">
         <Field label="LinkedIn" value={profile.identity.links.linkedin} onChange={(value) => update("identity.links.linkedin", value)} />
         <Field label="GitHub" value={profile.identity.links.github} onChange={(value) => update("identity.links.github", value)} />
         <Field label="Portfolio" value={profile.identity.links.portfolio} onChange={(value) => update("identity.links.portfolio", value)} />
+        </div>
       </div>
 
-      <div className="toggles">
-        <label><input type="checkbox" checked={profile.workAuthorization.usAuthorized} onChange={(event) => update("workAuthorization.usAuthorized", event.target.checked)} /> US authorized</label>
-        <label><input type="checkbox" checked={profile.workAuthorization.requiresSponsorship} onChange={(event) => update("workAuthorization.requiresSponsorship", event.target.checked)} /> Needs sponsorship</label>
+      <div className="profileSection">
+        <div className="profileSectionHeading">
+          <h3>Authorization & application defaults</h3>
+          <p>Explicit reusable answers. Legal declarations are always left for review.</p>
+        </div>
+        <div className="toggles">
+          <label><input type="checkbox" checked={profile.workAuthorization.usAuthorized} onChange={(event) => update("workAuthorization.usAuthorized", event.target.checked)} /> US authorized</label>
+          <label><input type="checkbox" checked={profile.workAuthorization.requiresSponsorship} onChange={(event) => update("workAuthorization.requiresSponsorship", event.target.checked)} /> Needs sponsorship</label>
+          <label><input type="checkbox" checked={profile.applicationDefaults.needsRecruitmentAdjustments} onChange={(event) => update("applicationDefaults.needsRecruitmentAdjustments", event.target.checked)} /> Recruitment adjustments needed</label>
+          <label><input type="checkbox" checked={profile.applicationDefaults.previouslyEmployedByFitch} onChange={(event) => update("applicationDefaults.previouslyEmployedByFitch", event.target.checked)} /> Previously employed by Fitch</label>
+          <label><input type="checkbox" checked={profile.applicationDefaults.jobNotifications} onChange={(event) => update("applicationDefaults.jobNotifications", event.target.checked)} /> Job notifications</label>
+        </div>
+        <div className="grid two">
+          <Field label="Visa status" value={profile.workAuthorization.visaStatus} onChange={(value) => update("workAuthorization.visaStatus", value)} />
+          <Field label="English proficiency" value={profile.workAuthorization.englishProficiency} onChange={(value) => update("workAuthorization.englishProficiency", value)} />
+          <Field label="Referral source" value={profile.applicationDefaults.referralSource} onChange={(value) => update("applicationDefaults.referralSource", value)} />
+          <Field label="Referral details" value={profile.applicationDefaults.referralDetails} onChange={(value) => update("applicationDefaults.referralDetails", value)} />
+          <Field label="Employee referral name" value={profile.applicationDefaults.employeeReferralName} onChange={(value) => update("applicationDefaults.employeeReferralName", value)} />
+          <Field label="Recruitment adjustment details" value={profile.applicationDefaults.recruitmentAdjustmentsDetails} onChange={(value) => update("applicationDefaults.recruitmentAdjustmentsDetails", value)} />
+          <Field label="Current employer" value={profile.applicationDefaults.currentEmployer} onChange={(value) => update("applicationDefaults.currentEmployer", value)} />
+          <Field label="Current title" value={profile.applicationDefaults.currentTitle} onChange={(value) => update("applicationDefaults.currentTitle", value)} />
+          <Field label="Current salary" value={profile.applicationDefaults.currentSalary} onChange={(value) => update("applicationDefaults.currentSalary", value)} />
+          <Field label="Desired salary" value={profile.applicationDefaults.desiredSalary} onChange={(value) => update("applicationDefaults.desiredSalary", value)} />
+          <Field label="Salary currency" value={profile.applicationDefaults.salaryCurrency} onChange={(value) => update("applicationDefaults.salaryCurrency", value)} />
+          <label className="field">
+            <span>Profile visibility</span>
+            <select value={profile.applicationDefaults.profileVisibility} onChange={(event) => update("applicationDefaults.profileVisibility", event.target.value)}>
+              <option value="">Review each application</option>
+              <option value="Any open role at Fitch">Any open role at Fitch</option>
+              <option value="Only for the roles that I directly apply to">Only directly applied roles</option>
+            </select>
+          </label>
+        </div>
       </div>
 
-      <Field label="English proficiency" value={profile.workAuthorization.englishProficiency} onChange={(value) => update("workAuthorization.englishProficiency", value)} />
+      <div className="profileSection">
+        <div className="profileSectionHeading">
+          <h3>Optional demographic answers</h3>
+          <p>Leave blank to keep these questions in the autofill review.</p>
+        </div>
+        <div className="grid two">
+          <Field label="Gender" value={profile.demographics.gender} onChange={(value) => update("demographics.gender", value)} />
+          <Field label="Ethnic origin" value={profile.demographics.race} onChange={(value) => update("demographics.race", value)} />
+          <Field label="Veteran status" value={profile.demographics.veteran} onChange={(value) => update("demographics.veteran", value)} />
+          <Field label="Disability disclosure" value={profile.demographics.disability} onChange={(value) => update("demographics.disability", value)} />
+        </div>
+      </div>
+
+      <div className="profileSection">
+        <div className="profileSectionHeading">
+          <h3>Experience facts</h3>
+          <p>Used for employer, title, skills, and drafted screening answers.</p>
+        </div>
       <label className="field">
         <span>Skills, one per line: name|years|note|services</span>
         <textarea rows={6} value={skillsText} onChange={(event) => updateSkills(event.target.value)} />
@@ -301,6 +389,7 @@ function ProfilePanel({
         <span>Experience, one block per company: title|company|start|end, then responsibilities, then stack</span>
         <textarea rows={10} value={experienceText} onChange={(event) => updateExperience(event.target.value)} />
       </label>
+      </div>
     </section>
   );
 }

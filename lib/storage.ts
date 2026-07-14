@@ -15,6 +15,10 @@ export async function getProfile(): Promise<Profile> {
     identity: {
       ...EMPTY_PROFILE.identity,
       ...stored?.identity,
+      address: {
+        ...EMPTY_PROFILE.identity.address,
+        ...stored?.identity?.address
+      },
       location: {
         ...EMPTY_PROFILE.identity.location,
         ...stored?.identity?.location
@@ -31,6 +35,10 @@ export async function getProfile(): Promise<Profile> {
     demographics: {
       ...EMPTY_PROFILE.demographics,
       ...stored?.demographics
+    },
+    applicationDefaults: {
+      ...EMPTY_PROFILE.applicationDefaults,
+      ...stored?.applicationDefaults
     }
   };
 }

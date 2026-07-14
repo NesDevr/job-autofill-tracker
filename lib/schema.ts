@@ -1,8 +1,13 @@
 export type CanonicalField =
   | "identity.firstName"
+  | "identity.middleName"
   | "identity.lastName"
   | "identity.email"
   | "identity.phone"
+  | "identity.phoneCountryCode"
+  | "identity.address.line1"
+  | "identity.address.line2"
+  | "identity.address.postalCode"
   | "identity.location.city"
   | "identity.location.state"
   | "identity.location.country"
@@ -11,16 +16,35 @@ export type CanonicalField =
   | "identity.links.portfolio"
   | "workAuthorization.usAuthorized"
   | "workAuthorization.requiresSponsorship"
-  | "workAuthorization.englishProficiency";
+  | "workAuthorization.visaStatus"
+  | "workAuthorization.englishProficiency"
+  | "applicationDefaults.referralSource"
+  | "applicationDefaults.referralDetails"
+  | "applicationDefaults.employeeReferralName"
+  | "applicationDefaults.needsRecruitmentAdjustments"
+  | "applicationDefaults.recruitmentAdjustmentsDetails"
+  | "applicationDefaults.previouslyEmployedByFitch"
+  | "applicationDefaults.currentEmployer"
+  | "applicationDefaults.currentTitle"
+  | "applicationDefaults.currentSalary"
+  | "applicationDefaults.desiredSalary"
+  | "applicationDefaults.salaryCurrency"
+  | "applicationDefaults.profileVisibility"
+  | "applicationDefaults.jobNotifications"
+  | "demographics.gender"
+  | "demographics.race"
+  | "demographics.veteran"
+  | "demographics.disability";
 
-export type FieldType = "text" | "textarea" | "select" | "radio" | "checkbox" | "file";
+export type FieldType = "text" | "textarea" | "select" | "combobox" | "radio" | "checkbox" | "file" | "confirmation" | "hyperlink";
 
 export type FieldDescriptor = {
   id: string;
   question: string;
   type: FieldType;
   options?: string[];
-  value?: string;
+  value?: string | boolean;
+  required?: boolean;
 };
 
 export type FieldFill = {
@@ -28,6 +52,15 @@ export type FieldFill = {
   value: string | boolean;
   source: "profile" | "memory" | "ai" | "skip";
   confidence: number;
+};
+
+export type AutofillReviewStatus = "filled" | "missing" | "unsupported" | "confirmation";
+
+export type AutofillReviewItem = {
+  id: string;
+  question: string;
+  status: AutofillReviewStatus;
+  detail: string;
 };
 
 export type Experience = {
@@ -114,11 +147,17 @@ export type SidebarLaunch = {
 export type Profile = {
   identity: {
     firstName: string;
+    middleName: string;
     lastName: string;
     preferredName: string;
     email: string;
     phone: string;
     phoneCountryCode: string;
+    address: {
+      line1: string;
+      line2: string;
+      postalCode: string;
+    };
     location: {
       city: string;
       state: string;
@@ -135,6 +174,7 @@ export type Profile = {
   workAuthorization: {
     usAuthorized: boolean;
     requiresSponsorship: boolean;
+    visaStatus: string;
     eligibleCountries: string[];
     timezonesComfortable: string[];
     englishProficiency: string;
@@ -148,7 +188,32 @@ export type Profile = {
     veteran: string;
     disability: string;
   };
+  applicationDefaults: {
+    referralSource: string;
+    referralDetails: string;
+    employeeReferralName: string;
+    needsRecruitmentAdjustments: boolean;
+    recruitmentAdjustmentsDetails: string;
+    previouslyEmployedByFitch: boolean;
+    currentEmployer: string;
+    currentTitle: string;
+    currentSalary: string;
+    desiredSalary: string;
+    salaryCurrency: string;
+    profileVisibility: string;
+    jobNotifications: boolean;
+  };
   resumeFileRef: string;
+  resumeFile?: {
+    name: string;
+    type: string;
+    dataUrl: string;
+  };
+  coverLetterFile?: {
+    name: string;
+    type: string;
+    dataUrl: string;
+  };
 };
 
 export type Settings = {
@@ -220,11 +285,17 @@ export type ExtensionMessage =
 export const EMPTY_PROFILE: Profile = {
   identity: {
     firstName: "",
+    middleName: "",
     lastName: "",
     preferredName: "",
     email: "",
     phone: "",
     phoneCountryCode: "+52",
+    address: {
+      line1: "",
+      line2: "",
+      postalCode: ""
+    },
     location: {
       city: "",
       state: "Tamaulipas",
@@ -241,6 +312,7 @@ export const EMPTY_PROFILE: Profile = {
   workAuthorization: {
     usAuthorized: false,
     requiresSponsorship: true,
+    visaStatus: "",
     eligibleCountries: ["Mexico"],
     timezonesComfortable: ["EST", "CST", "PST"],
     englishProficiency: "Professional (C1) - fluent speaking, writing, reading"
@@ -253,6 +325,21 @@ export const EMPTY_PROFILE: Profile = {
     race: "",
     veteran: "",
     disability: ""
+  },
+  applicationDefaults: {
+    referralSource: "",
+    referralDetails: "",
+    employeeReferralName: "",
+    needsRecruitmentAdjustments: false,
+    recruitmentAdjustmentsDetails: "",
+    previouslyEmployedByFitch: false,
+    currentEmployer: "",
+    currentTitle: "",
+    currentSalary: "",
+    desiredSalary: "",
+    salaryCurrency: "",
+    profileVisibility: "",
+    jobNotifications: false
   },
   resumeFileRef: ""
 };
