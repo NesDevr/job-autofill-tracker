@@ -67,20 +67,24 @@ select {
 }
 
 .dashboardIcon {
-  display: grid;
-  width: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   height: 34px;
   border: 1px solid #1f2a33;
   border-radius: 7px;
   background: #fffaf2;
   color: #101820;
   cursor: pointer;
-  place-items: center;
+  padding: 0 10px;
+  font-size: 11px;
+  font-weight: 800;
 }
 
 .statGrid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 7px;
 }
 
@@ -106,14 +110,20 @@ select {
   line-height: 1;
 }
 
+.quickActions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
 .autofillButton,
 .trackButton,
-.answerButton,
-.dashboardButton {
+.answerButton {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 7px;
+  min-width: 0;
   min-height: 37px;
   border: 1px solid #27745f;
   border-radius: 7px;
@@ -122,12 +132,7 @@ select {
   cursor: pointer;
   font-size: 12px;
   font-weight: 800;
-}
-
-.dashboardButton {
-  border-color: #1f2a33;
-  background: #fffaf2;
-  color: #101820;
+  white-space: nowrap;
 }
 
 .trackButton {
@@ -140,6 +145,12 @@ select {
   border-color: #8a5b12;
   background: #8a5b12;
   color: #fffaf2;
+}
+
+@media (max-width: 420px) {
+  .quickActions button span {
+    display: none;
+  }
 }
 
 .answerPanel,
@@ -176,6 +187,21 @@ select {
   font-weight: 800;
 }
 
+.pastePanel button:disabled {
+  cursor: default;
+  opacity: 0.78;
+}
+
+.buttonSpinner {
+  animation: button-spin 0.8s linear infinite;
+}
+
+@keyframes button-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .manualPanel,
 .pastePanel,
 .answerPanel {
@@ -196,7 +222,12 @@ select {
 .manualPanel input,
 .manualPanel select,
 .pastePanel textarea,
-.answerPanel textarea {
+.answerPanel textarea,
+.trackerFilters input,
+.trackerFilters select,
+.trackedJob select,
+.trackedJob input,
+.trackedJob textarea {
   width: 100%;
   border: 1px solid #c6b9a8;
   border-radius: 7px;
@@ -222,6 +253,258 @@ select {
   border-color: #1f2a33;
   background: #fffaf2;
   color: #101820;
+}
+
+.trackedJobs {
+  display: grid;
+  gap: 8px;
+}
+
+.trackedJobsHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: #51606d;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.trackedJobsHeader button,
+.jobLink {
+  display: inline-grid;
+  min-width: 31px;
+  height: 29px;
+  border: 1px solid #1f2a33;
+  border-radius: 7px;
+  background: #fffaf2;
+  color: #101820;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 800;
+  place-items: center;
+  text-decoration: none;
+}
+
+.trackerFilters {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(88px, 0.42fr);
+  gap: 7px;
+}
+
+.trackerFilters input,
+.trackerFilters select {
+  min-height: 32px;
+  font-size: 12px;
+}
+
+.trackedJob {
+  display: grid;
+  gap: 7px;
+  border: 1px solid #d8cdbc;
+  border-radius: 8px;
+  background: #fffdf8;
+  padding: 8px;
+}
+
+.trackedJobTop,
+.trackedJobControls {
+  display: grid;
+  gap: 7px;
+}
+
+.trackedJobTop {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.trackedJobActions {
+  display: flex;
+  gap: 5px;
+}
+
+.trackedJobToggle {
+  display: grid;
+  width: 25px;
+  height: 25px;
+  border: 1px solid #d8cdbc;
+  border-radius: 7px;
+  background: #fffaf2;
+  color: #101820;
+  cursor: pointer;
+  place-items: center;
+}
+
+.jobLink.danger {
+  color: #8f1d1d;
+}
+
+.trackedJobControls {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.trackedJob strong {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.trackedJobTitle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.trackedJob strong {
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.trackedJob span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 3px;
+  color: #64717d;
+  font-size: 11px;
+}
+
+.trackedJobTitle strong {
+  display: inline;
+  flex: 0 1 auto;
+}
+
+.trackedJob select.trackedJobStatus {
+  flex: 0 0 auto;
+  width: fit-content;
+  min-height: 24px;
+  margin: 0;
+  border: 1px solid #eadfce;
+  border-radius: 999px;
+  background: #f7efe3;
+  color: #465360;
+  padding: 2px 22px 2px 7px;
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.trackedJobMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.trackedJobMeta span {
+  width: fit-content;
+  margin: 0;
+  border: 1px solid #eadfce;
+  border-radius: 999px;
+  background: #f7efe3;
+  color: #465360;
+  padding: 3px 7px;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.trackedJob:not(.expanded) {
+  gap: 5px;
+  padding: 7px;
+}
+
+.trackedJob select,
+.trackedJob input,
+.trackedJob textarea {
+  min-height: 32px;
+  font-size: 12px;
+}
+
+.trackedJob textarea {
+  min-height: 52px;
+}
+
+.trackedJobDetails {
+  border-top: 1px solid #eadfce;
+  padding-top: 7px;
+}
+
+.trackedJobDetails > strong,
+.trackedJobAnswers > strong {
+  color: #51606d;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.trackedJobEdit {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  margin-top: 7px;
+}
+
+.trackedJobEdit label {
+  display: grid;
+  gap: 4px;
+}
+
+.trackedJobEdit label span {
+  margin: 0;
+  color: #64717d;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.trackedJobEdit .trackedJobWide {
+  grid-column: 1 / -1;
+}
+
+.trackedJobAnswers {
+  display: grid;
+  gap: 7px;
+  margin-top: 10px;
+  border-top: 1px solid #eadfce;
+  padding-top: 8px;
+}
+
+.trackedJobAnswers p {
+  margin: 0;
+  color: #64717d;
+  font-size: 11px;
+}
+
+.trackedJobAnswer {
+  display: grid;
+  gap: 7px;
+  border-left: 2px solid #c6b9a8;
+  padding-left: 7px;
+}
+
+.trackedJobAnswer label {
+  display: grid;
+  gap: 4px;
+}
+
+.trackedJobAnswer label span {
+  margin: 0;
+  color: #64717d;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.emptyJobs {
+  margin: 0;
+  border: 1px dashed #c6b9a8;
+  border-radius: 8px;
+  color: #64717d;
+  font-size: 12px;
+  line-height: 1.35;
+  padding: 10px;
+  text-align: center;
 }
 
 .status {
@@ -261,9 +544,11 @@ select {
 }
 
 :root[data-theme="dark"] .dashboardIcon,
-:root[data-theme="dark"] .dashboardButton,
 :root[data-theme="dark"] .trackActions button,
-:root[data-theme="dark"] .answerPanel .copyButton {
+:root[data-theme="dark"] .answerPanel .copyButton,
+:root[data-theme="dark"] .trackedJobsHeader button,
+:root[data-theme="dark"] .jobLink,
+:root[data-theme="dark"] .trackedJobToggle {
   border-color: #475569;
   background: #1e293b;
   color: #f1f5f9;
@@ -293,10 +578,66 @@ select {
 :root[data-theme="dark"] .manualPanel input,
 :root[data-theme="dark"] .manualPanel select,
 :root[data-theme="dark"] .pastePanel textarea,
-:root[data-theme="dark"] .answerPanel textarea {
+:root[data-theme="dark"] .answerPanel textarea,
+:root[data-theme="dark"] .trackerFilters input,
+:root[data-theme="dark"] .trackerFilters select,
+:root[data-theme="dark"] .trackedJob select,
+:root[data-theme="dark"] .trackedJob input,
+:root[data-theme="dark"] .trackedJob textarea {
   border-color: #475569;
   background: #0f172a;
   color: #f8fafc;
+}
+
+:root[data-theme="dark"] .trackedJobsHeader,
+:root[data-theme="dark"] .trackedJob span,
+:root[data-theme="dark"] .emptyJobs {
+  color: #c3ceda;
+}
+
+:root[data-theme="dark"] .trackedJob {
+  border-color: #334155;
+  background: #111827;
+}
+
+:root[data-theme="dark"] .trackedJobDetails {
+  border-color: #334155;
+}
+
+:root[data-theme="dark"] .trackedJobDetails > strong,
+:root[data-theme="dark"] .trackedJobAnswers > strong,
+:root[data-theme="dark"] .trackedJobEdit label span,
+:root[data-theme="dark"] .trackedJobAnswer label span,
+:root[data-theme="dark"] .trackedJobAnswers p {
+  color: #c3ceda;
+}
+
+:root[data-theme="dark"] .trackedJobAnswers {
+  border-color: #334155;
+}
+
+:root[data-theme="dark"] .trackedJobAnswer {
+  border-color: #475569;
+}
+
+:root[data-theme="dark"] .jobLink.danger {
+  color: #fecaca;
+}
+
+:root[data-theme="dark"] .trackedJobMeta span {
+  border-color: #334155;
+  background: #1e293b;
+  color: #c3ceda;
+}
+
+:root[data-theme="dark"] .trackedJob select.trackedJobStatus {
+  border-color: #334155;
+  background: #1e293b;
+  color: #c3ceda;
+}
+
+:root[data-theme="dark"] .emptyJobs {
+  border-color: #475569;
 }
 
 :root[data-theme="dark"] input::placeholder,

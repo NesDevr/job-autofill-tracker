@@ -1,15 +1,15 @@
 import { draftAnswers } from "../lib/ai";
 import { db } from "../lib/db";
 import { deterministicValue, memoryValue } from "../lib/mapping";
-import { getProfile, getSettings, queuePendingApplication, removePendingApplication, setDashboardLaunch } from "../lib/storage";
+import { getProfile, getSettings, queuePendingApplication, removePendingApplication, setSidebarLaunch } from "../lib/storage";
 import type { ExtensionMessage, FieldFill } from "../lib/schema";
 
 export default defineBackground({
   main() {
     void chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
 
-    chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, sendResponse) => {
-      handleMessage(message)
+    chrome.runtime.onMessage.addListener((message: ExtensionMessage, sender, sendResponse) => {
+      handleMessage(message, sender)
         .then(sendResponse)
         .catch((error: unknown) => {
           const detail = error instanceof Error ? error.message : String(error);
@@ -20,7 +20,7 @@ export default defineBackground({
   }
 });
 
-async function handleMessage(message: ExtensionMessage): Promise<unknown> {
+async function handleMessage(message: ExtensionMessage, sender: chrome.runtime.MessageSender): Promise<unknown> {
   if (message.kind === "LOG_APPLICATION") {
     await db.applications.add(message.application);
     return { ok: true };
@@ -37,9 +37,11 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
   }
 
   if (message.kind === "OPEN_TRACKER_PASTE") {
+    if (sender.tab?.windowId === undefined) throw new Error("Cannot open the tracker sidebar without a source window.");
+    const openSidebar = chrome.sidePanel.open({ windowId: sender.tab.windowId });
     await queuePendingApplication(message.pending);
-    await setDashboardLaunch({ tab: "tracker", pendingId: message.pending.id, createdAt: new Date().toISOString() });
-    await chrome.runtime.openOptionsPage();
+    await setSidebarLaunch({ pendingId: message.pending.id, createdAt: new Date().toISOString() });
+    await openSidebar;
     return { ok: true };
   }
 

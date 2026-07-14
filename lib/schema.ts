@@ -106,6 +106,11 @@ export type DashboardLaunch = {
   createdAt: string;
 };
 
+export type SidebarLaunch = {
+  pendingId: string;
+  createdAt: string;
+};
+
 export type Profile = {
   identity: {
     firstName: string;
