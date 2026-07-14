@@ -5,7 +5,7 @@ import { draftApplicationFromJobPosting, draftSingleAnswer } from "../../lib/ai"
 import { normalizeCompensationCurrency } from "../../lib/compensation";
 import { sendAutofillMessage } from "../../lib/autofill";
 import { db } from "../../lib/db";
-import type { Application, ApplicationStatus, CompensationCurrency, CompensationPeriod } from "../../lib/schema";
+import type { Application, ApplicationStatus, AutofillReviewItem, CompensationCurrency, CompensationPeriod } from "../../lib/schema";
 import { clearSidebarLaunch, getPendingApplications, getProfile, getSettings, getSidebarLaunch, removePendingApplication } from "../../lib/storage";
 import { applyTheme } from "../../lib/theme";
 import "./styles.css";
@@ -46,6 +46,7 @@ function SidePanel() {
   const [answerOpen, setAnswerOpen] = useState(false);
   const [answerQuestion, setAnswerQuestion] = useState("");
   const [draftedAnswer, setDraftedAnswer] = useState("");
+  const [autofillReview, setAutofillReview] = useState<AutofillReviewItem[]>([]);
   const [status, setStatus] = useState("");
 
   useEffect(() => {
@@ -103,12 +104,18 @@ function SidePanel() {
 
   async function autofillCurrentPage() {
     setStatus("Autofilling...");
+    setAutofillReview([]);
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (!tab?.id) throw new Error("No active page tab found.");
       const response = await sendAutofillMessage(tab.id);
       if (!response.ok) throw new Error(response.error ?? "Autofill failed.");
-      setStatus(response.resumeOpened ? `Filled ${response.filled} fields. Resume picker opened.` : `Filled ${response.filled} fields.`);
+      const review = response.review ?? [];
+      const outstanding = review.filter((item) => item.status !== "filled").length;
+      setAutofillReview(review);
+      setStatus(outstanding > 0
+        ? `Verified ${response.filled ?? 0} fields. ${outstanding} need attention.`
+        : `Verified ${response.filled ?? 0} fields.`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : String(error));
     }
@@ -445,8 +452,41 @@ function SidePanel() {
         </section>
       )}
 
+      {autofillReview.length > 0 && <AutofillReview items={autofillReview} />}
+
       {status && <p className="status">{status}</p>}
     </main>
+  );
+}
+
+function AutofillReview({ items }: { items: AutofillReviewItem[] }) {
+  const outstanding = items.filter((item) => item.status !== "filled");
+  const filled = items.length - outstanding.length;
+  return (
+    <section className="autofillReview" aria-label="Autofill review">
+      <div className="autofillReviewHeader">
+        <div>
+          <span>Autofill review</span>
+          <strong>{outstanding.length === 0 ? "Ready" : `${outstanding.length} to check`}</strong>
+        </div>
+        <span>{filled} verified</span>
+      </div>
+      {outstanding.length === 0 ? (
+        <p className="autofillReady">Every detected field was filled and verified.</p>
+      ) : (
+        <div className="autofillReviewList">
+          {outstanding.map((item) => (
+            <div className={`autofillReviewItem ${item.status}`} key={`${item.id}-${item.question}`}>
+              <span>{item.status === "confirmation" ? "Confirm" : item.status === "missing" ? "Missing" : "Blocked"}</span>
+              <div>
+                <strong>{item.question}</strong>
+                <p>{item.detail}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 

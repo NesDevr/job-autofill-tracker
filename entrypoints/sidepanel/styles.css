@@ -507,6 +507,92 @@ select {
   text-align: center;
 }
 
+.autofillReview {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #c8b78f;
+  border-radius: 9px;
+  background: rgba(255, 248, 231, 0.92);
+  padding: 9px;
+}
+
+.autofillReviewHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.autofillReviewHeader > div {
+  display: grid;
+  gap: 1px;
+}
+
+.autofillReviewHeader span {
+  color: #6b5a32;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.autofillReviewHeader strong {
+  font-size: 14px;
+}
+
+.autofillReviewList {
+  display: grid;
+  gap: 6px;
+  max-height: 230px;
+  overflow: auto;
+}
+
+.autofillReviewItem {
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr);
+  gap: 7px;
+  border-left: 3px solid #9a6a17;
+  border-radius: 5px;
+  background: #fffdf8;
+  padding: 7px;
+}
+
+.autofillReviewItem.missing {
+  border-left-color: #a13b2b;
+}
+
+.autofillReviewItem.unsupported {
+  border-left-color: #7651a6;
+}
+
+.autofillReviewItem > span {
+  color: #7b6129;
+  font-size: 9px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.autofillReviewItem strong {
+  display: block;
+  font-size: 11px;
+  line-height: 1.25;
+}
+
+.autofillReviewItem p,
+.autofillReady {
+  margin: 2px 0 0;
+  color: #64717d;
+  font-size: 10px;
+  line-height: 1.3;
+}
+
+.autofillReady {
+  border: 1px dashed #7ca493;
+  border-radius: 7px;
+  color: #25624f;
+  padding: 8px;
+  text-align: center;
+}
+
 .status {
   color: #465360;
   font-size: 12px;
@@ -638,6 +724,33 @@ select {
 
 :root[data-theme="dark"] .emptyJobs {
   border-color: #475569;
+}
+
+:root[data-theme="dark"] .autofillReview {
+  border-color: #66542c;
+  background: rgba(39, 34, 23, 0.96);
+}
+
+:root[data-theme="dark"] .autofillReviewHeader span,
+:root[data-theme="dark"] .autofillReviewItem > span {
+  color: #f5c96a;
+}
+
+:root[data-theme="dark"] .autofillReviewItem {
+  background: #111827;
+}
+
+:root[data-theme="dark"] .autofillReviewItem strong {
+  color: #f8fafc;
+}
+
+:root[data-theme="dark"] .autofillReviewItem p {
+  color: #c3ceda;
+}
+
+:root[data-theme="dark"] .autofillReady {
+  border-color: #2f765f;
+  color: #a7f3d0;
 }
 
 :root[data-theme="dark"] input::placeholder,
