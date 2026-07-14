@@ -1,7 +1,7 @@
 import { rememberAnswer } from "./mapping";
 import { normalizeCompensationCurrency } from "./compensation";
 import { normalizeProfilePhone } from "./profileValues";
-import { EMPTY_PROFILE, type Application, type FieldDescriptor, type FieldFill, type Profile, type Settings } from "./schema";
+import { EMPTY_PROFILE, type Application, type Compensation, type FieldDescriptor, type FieldFill, type Profile, type Settings } from "./schema";
 
 type OpenAiOutputContent = {
   type: string;
@@ -10,6 +10,10 @@ type OpenAiOutputContent = {
 };
 
 type OpenAiResponse = {
+  status?: string;
+  incomplete_details?: {
+    reason?: string;
+  };
   output?: Array<{
     type: string;
     content?: OpenAiOutputContent[];
@@ -27,6 +31,7 @@ type CvProfileDraft = Omit<Profile, "skills"> & {
 };
 
 type JobPostingDraft = Pick<Application, "company" | "role" | "location" | "workMode" | "compensation" | "jobDescription" | "source" | "jobUrl">;
+type JobPostingExtraction = Omit<JobPostingDraft, "jobDescription">;
 
 const answerSchema = {
   type: "object",
@@ -163,7 +168,7 @@ const cvProfileSchema = {
 const jobPostingSchema = {
   type: "object",
   additionalProperties: false,
-  required: ["company", "role", "location", "workMode", "compensation", "jobDescription", "source", "jobUrl"],
+  required: ["company", "role", "location", "workMode", "compensation", "source", "jobUrl"],
   properties: {
     company: { type: "string" },
     role: { type: "string" },
@@ -181,7 +186,6 @@ const jobPostingSchema = {
         period: { type: "string", enum: ["year", "month", "hour", "one-time", ""] }
       }
     },
-    jobDescription: { type: "string" },
     source: { type: "string" },
     jobUrl: { type: "string" }
   }
@@ -313,21 +317,14 @@ export async function draftApplicationFromJobPosting(
 
   const text = await createOpenAiJson(settings, {
     instructions:
-      "Extract a job-tracker entry from unstructured job posting text. Use only facts present in the pasted text or provided page URL. Do not invent company, role, location, work mode, or compensation. If a value is missing, use an empty string or null for numeric compensation bounds. Compensation text should preserve the original salary/rate wording; structured min/max should be plain numbers when explicitly present. Currency must be MXN, USD, EUR, or an empty string if unknown. If currency is not explicit and the period is monthly, amounts over 10000 are usually MXN and amounts under 10000 are usually USD. If the period is yearly, use the yearly equivalent threshold of 120000.",
+      "Extract a job-tracker entry from unstructured job posting text. Use only facts present in the pasted text or provided page URL. Do not invent company, role, location, work mode, or compensation. If compensation is not explicitly present in the pasted text, return compensation as empty text, empty currency, null min, null max, and empty period. Compensation text must preserve exact original salary/rate wording from the pasted text; structured min/max should be plain numbers only when explicitly present. Currency must be MXN, USD, EUR, or an empty string if unknown. If currency is not explicit and the period is monthly, amounts over 10000 are usually MXN and amounts under 10000 are usually USD. If the period is yearly, use the yearly equivalent threshold of 120000.",
     input: [
       {
         role: "user",
         content: JSON.stringify({
           pageUrl,
           postingText,
-          allowedWorkModes: ["Remote", "Hybrid", "On-site", ""],
-          compensationShape: {
-            text: "$100,000-$130,000/year",
-            currency: "USD",
-            min: 100000,
-            max: 130000,
-            period: "year"
-          }
+          allowedWorkModes: ["Remote", "Hybrid", "On-site", ""]
         })
       }
     ],
@@ -336,11 +333,29 @@ export async function draftApplicationFromJobPosting(
     maxOutputTokens: 2200
   });
 
-  const draft = JSON.parse(text) as JobPostingDraft;
+  const draft = JSON.parse(text) as JobPostingExtraction;
   return {
     ...draft,
-    compensation: normalizeCompensationCurrency(draft.compensation)
+    jobDescription: postingText.trim(),
+    compensation: normalizeExtractedCompensation(draft.compensation, postingText)
   };
+}
+
+function normalizeExtractedCompensation(compensation: Compensation | undefined, postingText: string): Compensation | undefined {
+  if (!compensation) return undefined;
+  if (!compensation.text.trim() && compensation.min == null && compensation.max == null && !compensation.currency && !compensation.period) {
+    return undefined;
+  }
+
+  const normalizedPosting = normalizeLooseText(postingText);
+  const normalizedCompensationText = normalizeLooseText(compensation.text);
+  if (!normalizedCompensationText || !normalizedPosting.includes(normalizedCompensationText)) return undefined;
+
+  return normalizeCompensationCurrency(compensation);
+}
+
+function normalizeLooseText(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
 }
 
 async function createOpenAiJson(
@@ -388,6 +403,9 @@ async function createOpenAiJson(
 }
 
 function extractOpenAiText(payload: OpenAiResponse): string {
+  if (payload.status === "incomplete") {
+    throw new Error(`OpenAI response was incomplete: ${payload.incomplete_details?.reason ?? "unknown reason"}.`);
+  }
   if (payload.output_text) return payload.output_text;
 
   for (const item of payload.output ?? []) {
