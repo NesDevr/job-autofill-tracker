@@ -1,7 +1,10 @@
+import type { AutofillReviewItem } from "./schema";
+
 export type AutofillResult = {
   ok: boolean;
   filled?: number;
   resumeOpened?: boolean;
+  review?: AutofillReviewItem[];
   error?: string;
 };
 

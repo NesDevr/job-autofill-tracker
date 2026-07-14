@@ -73,12 +73,22 @@ function getProfileValue(profile: Profile, key: CanonicalField): string | boolea
   switch (key) {
     case "identity.firstName":
       return profile.identity.firstName;
+    case "identity.middleName":
+      return profile.identity.middleName;
     case "identity.lastName":
       return profile.identity.lastName;
     case "identity.email":
       return profile.identity.email;
     case "identity.phone":
       return formatProfilePhone(profile);
+    case "identity.phoneCountryCode":
+      return profile.identity.phoneCountryCode;
+    case "identity.address.line1":
+      return profile.identity.address.line1;
+    case "identity.address.line2":
+      return profile.identity.address.line2;
+    case "identity.address.postalCode":
+      return profile.identity.address.postalCode;
     case "identity.location.city":
       return profile.identity.location.city;
     case "identity.location.state":
@@ -95,8 +105,44 @@ function getProfileValue(profile: Profile, key: CanonicalField): string | boolea
       return profile.workAuthorization.usAuthorized;
     case "workAuthorization.requiresSponsorship":
       return profile.workAuthorization.requiresSponsorship;
+    case "workAuthorization.visaStatus":
+      return profile.workAuthorization.visaStatus;
     case "workAuthorization.englishProficiency":
       return profile.workAuthorization.englishProficiency;
+    case "applicationDefaults.referralSource":
+      return profile.applicationDefaults.referralSource;
+    case "applicationDefaults.referralDetails":
+      return profile.applicationDefaults.referralDetails;
+    case "applicationDefaults.employeeReferralName":
+      return profile.applicationDefaults.employeeReferralName;
+    case "applicationDefaults.needsRecruitmentAdjustments":
+      return profile.applicationDefaults.needsRecruitmentAdjustments;
+    case "applicationDefaults.recruitmentAdjustmentsDetails":
+      return profile.applicationDefaults.recruitmentAdjustmentsDetails;
+    case "applicationDefaults.previouslyEmployedByFitch":
+      return profile.applicationDefaults.previouslyEmployedByFitch;
+    case "applicationDefaults.currentEmployer":
+      return profile.applicationDefaults.currentEmployer || profile.experience[0]?.company;
+    case "applicationDefaults.currentTitle":
+      return profile.applicationDefaults.currentTitle || profile.experience[0]?.title;
+    case "applicationDefaults.currentSalary":
+      return profile.applicationDefaults.currentSalary;
+    case "applicationDefaults.desiredSalary":
+      return profile.applicationDefaults.desiredSalary;
+    case "applicationDefaults.salaryCurrency":
+      return profile.applicationDefaults.salaryCurrency;
+    case "applicationDefaults.profileVisibility":
+      return profile.applicationDefaults.profileVisibility;
+    case "applicationDefaults.jobNotifications":
+      return profile.applicationDefaults.jobNotifications;
+    case "demographics.gender":
+      return profile.demographics.gender;
+    case "demographics.race":
+      return profile.demographics.race;
+    case "demographics.veteran":
+      return profile.demographics.veteran;
+    case "demographics.disability":
+      return profile.demographics.disability;
   }
 }
 
@@ -104,7 +150,8 @@ function coerceForField(field: FieldDescriptor, raw: string | boolean): string |
   if (field.type === "checkbox") return Boolean(raw);
   if (field.options?.length) {
     const normalizedRaw = normalizeText(String(raw));
-    const option = field.options.find((candidate) => normalizeText(candidate).includes(normalizedRaw));
+    const option = field.options.find((candidate) => normalizeText(candidate) === normalizedRaw)
+      ?? field.options.find((candidate) => normalizeText(candidate).includes(normalizedRaw));
     if (option) return option;
 
     if (typeof raw === "boolean") {

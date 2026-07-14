@@ -71,7 +71,7 @@ async function handleMessage(message: ExtensionMessage, sender: chrome.runtime.M
       continue;
     }
 
-    if (field.type === "textarea" || field.question.length > 40) {
+    if (field.type === "textarea" || (field.type === "text" && field.question.length > 40)) {
       remaining.push(field);
     }
   }

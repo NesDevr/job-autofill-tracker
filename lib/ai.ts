@@ -57,20 +57,32 @@ const cvProfileSchema = {
     "skills",
     "education",
     "demographics",
+    "applicationDefaults",
     "resumeFileRef"
   ],
   properties: {
     identity: {
       type: "object",
       additionalProperties: false,
-      required: ["firstName", "lastName", "preferredName", "email", "phone", "phoneCountryCode", "location", "links"],
+      required: ["firstName", "middleName", "lastName", "preferredName", "email", "phone", "phoneCountryCode", "address", "location", "links"],
       properties: {
         firstName: { type: "string" },
+        middleName: { type: "string" },
         lastName: { type: "string" },
         preferredName: { type: "string" },
         email: { type: "string" },
         phone: { type: "string" },
         phoneCountryCode: { type: "string" },
+        address: {
+          type: "object",
+          additionalProperties: false,
+          required: ["line1", "line2", "postalCode"],
+          properties: {
+            line1: { type: "string" },
+            line2: { type: "string" },
+            postalCode: { type: "string" }
+          }
+        },
         location: {
           type: "object",
           additionalProperties: false,
@@ -98,10 +110,11 @@ const cvProfileSchema = {
     workAuthorization: {
       type: "object",
       additionalProperties: false,
-      required: ["usAuthorized", "requiresSponsorship", "eligibleCountries", "timezonesComfortable", "englishProficiency"],
+      required: ["usAuthorized", "requiresSponsorship", "visaStatus", "eligibleCountries", "timezonesComfortable", "englishProficiency"],
       properties: {
         usAuthorized: { type: "boolean" },
         requiresSponsorship: { type: "boolean" },
+        visaStatus: { type: "string" },
         eligibleCountries: { type: "array", items: { type: "string" } },
         timezonesComfortable: { type: "array", items: { type: "string" } },
         englishProficiency: { type: "string" }
@@ -159,6 +172,40 @@ const cvProfileSchema = {
         race: { type: "string" },
         veteran: { type: "string" },
         disability: { type: "string" }
+      }
+    },
+    applicationDefaults: {
+      type: "object",
+      additionalProperties: false,
+      required: [
+        "referralSource",
+        "referralDetails",
+        "employeeReferralName",
+        "needsRecruitmentAdjustments",
+        "recruitmentAdjustmentsDetails",
+        "previouslyEmployedByFitch",
+        "currentEmployer",
+        "currentTitle",
+        "currentSalary",
+        "desiredSalary",
+        "salaryCurrency",
+        "profileVisibility",
+        "jobNotifications"
+      ],
+      properties: {
+        referralSource: { type: "string" },
+        referralDetails: { type: "string" },
+        employeeReferralName: { type: "string" },
+        needsRecruitmentAdjustments: { type: "boolean" },
+        recruitmentAdjustmentsDetails: { type: "string" },
+        previouslyEmployedByFitch: { type: "boolean" },
+        currentEmployer: { type: "string" },
+        currentTitle: { type: "string" },
+        currentSalary: { type: "string" },
+        desiredSalary: { type: "string" },
+        salaryCurrency: { type: "string" },
+        profileVisibility: { type: "string" },
+        jobNotifications: { type: "boolean" }
       }
     },
     resumeFileRef: { type: "string" }
@@ -274,10 +321,11 @@ export async function importProfileFromCv(
   settings: Settings
 ): Promise<Profile> {
   if (!settings.apiKey) throw new Error("OpenAI API key is required before importing a CV.");
+  const { resumeFile: _resumeFile, coverLetterFile: _coverLetterFile, ...profileFacts } = currentProfile;
 
   const text = await createOpenAiJson(settings, {
     instructions:
-      "Extract a candidate profile from the attached CV PDF. Use only facts present in the CV. Preserve existing profile values when the CV does not provide a value. Use empty strings, empty arrays, or false only when neither the CV nor the existing profile provides a value. Do not infer demographics.",
+      "Extract a candidate profile from the attached CV PDF. Use only facts present in the CV. Preserve existing profile values when the CV does not provide a value. Use empty strings, empty arrays, or false only when neither the CV nor the existing profile provides a value. Do not infer demographics or application defaults; preserve those existing values exactly.",
     input: [
       {
         role: "user",
@@ -285,7 +333,7 @@ export async function importProfileFromCv(
           {
             type: "input_text",
             text: JSON.stringify({
-              existingProfile: currentProfile,
+              existingProfile: profileFacts,
               targetShape:
                 "Return a complete profile draft. Skills must be an array with name, years, note, and services.",
               resumeFileRef: fileName
@@ -437,6 +485,10 @@ function cvDraftToProfile(draft: CvProfileDraft): Profile {
     identity: {
       ...EMPTY_PROFILE.identity,
       ...draft.identity,
+      address: {
+        ...EMPTY_PROFILE.identity.address,
+        ...draft.identity.address
+      },
       location: {
         ...EMPTY_PROFILE.identity.location,
         ...draft.identity.location
@@ -453,6 +505,10 @@ function cvDraftToProfile(draft: CvProfileDraft): Profile {
     demographics: {
       ...EMPTY_PROFILE.demographics,
       ...draft.demographics
+    },
+    applicationDefaults: {
+      ...EMPTY_PROFILE.applicationDefaults,
+      ...draft.applicationDefaults
     },
     skills
   });
