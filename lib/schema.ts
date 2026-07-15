@@ -72,6 +72,18 @@ export type Experience = {
   stack: string[];
 };
 
+export type PersonalProject = {
+  name: string;
+  description: string;
+  role: string;
+  start: string;
+  end: string;
+  highlights: string[];
+  stack: string[];
+  url: string;
+  repository: string;
+};
+
 export type SkillFact = {
   years: number;
   note: string;
@@ -180,6 +192,8 @@ export type Profile = {
     englishProficiency: string;
   };
   experience: Experience[];
+  personalProjects: PersonalProject[];
+  additionalKnowledge: string;
   skills: Record<string, SkillFact>;
   education: Array<{ degree: string; school: string; year: string }>;
   demographics: {
@@ -318,6 +332,8 @@ export const EMPTY_PROFILE: Profile = {
     englishProficiency: "Professional (C1) - fluent speaking, writing, reading"
   },
   experience: [],
+  personalProjects: [],
+  additionalKnowledge: "",
   skills: {},
   education: [],
   demographics: {

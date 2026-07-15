@@ -1,10 +1,11 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { BriefcaseBusiness, Building2, CalendarClock, ChevronDown, ChevronRight, Download, FileText, KeyRound, ListFilter, MapPin, Plus, Save, Search, Sparkles, Trash2, Upload, UserRound, Wand2, X } from "lucide-react";
-import { draftApplicationFromJobPosting, draftSingleAnswer, importProfileFromCv } from "../../lib/ai";
+import { draftApplicationFromJobPosting, draftSingleAnswer, enrichProfileFromText, importProfileFromCv } from "../../lib/ai";
 import { normalizeCompensationCurrency } from "../../lib/compensation";
 import { db } from "../../lib/db";
 import { questionHash } from "../../lib/mapping";
+import { formatExperience, formatProjects, formatSkills, parseExperience, parseProjects, parseSkills } from "../../lib/profileText";
 import { EMPTY_PROFILE, type AnswerMemory, type Application, type ApplicationStatus, type CompensationCurrency, type CompensationPeriod, type PendingApplication, type Profile, type Settings, type ThemeMode } from "../../lib/schema";
 import { clearDashboardLaunch, getDashboardLaunch, getPendingApplications, getProfile, getSettings, removePendingApplication, saveProfile, saveSettings } from "../../lib/storage";
 import { applyTheme } from "../../lib/theme";
@@ -192,26 +193,16 @@ function ProfilePanel({
   importStatus: string;
   onImportCv: (file: File) => Promise<void>;
 }) {
-  const skillsText = useMemo(
-    () =>
-      Object.entries(profile.skills)
-        .map(([name, fact]) => `${name}|${fact.years}|${fact.note}${fact.services?.length ? `|${fact.services.join(",")}` : ""}`)
-        .join("\n"),
-    [profile.skills]
-  );
-  const experienceText = useMemo(
-    () =>
-      profile.experience
-        .map((item) =>
-          [
-            `${item.title}|${item.company}|${item.start}|${item.end}`,
-            item.highlights.join("; "),
-            item.stack.join(", ")
-          ].join("\n")
-        )
-        .join("\n\n"),
-    [profile.experience]
-  );
+  const [smartAddText, setSmartAddText] = useState("");
+  const [smartAddStatus, setSmartAddStatus] = useState("");
+  const [smartAdding, setSmartAdding] = useState(false);
+  const [skillsText, setSkillsText] = useState(() => formatSkills(profile.skills));
+  const [experienceText, setExperienceText] = useState(() => formatExperience(profile.experience));
+  const [projectsText, setProjectsText] = useState(() => formatProjects(profile.personalProjects));
+
+  useEffect(() => setSkillsText(formatSkills(profile.skills)), [profile.skills]);
+  useEffect(() => setExperienceText(formatExperience(profile.experience)), [profile.experience]);
+  useEffect(() => setProjectsText(formatProjects(profile.personalProjects)), [profile.personalProjects]);
 
   function update(path: string, value: string | boolean) {
     const { resumeFile, coverLetterFile, ...profileFacts } = profile;
@@ -228,37 +219,31 @@ function ProfilePanel({
   }
 
   function updateSkills(value: string) {
-    const skills: Profile["skills"] = {};
-    for (const line of value.split("\n")) {
-      if (!line.trim()) continue;
-      const [name, years, note, services] = line.split("|");
-      skills[name.trim()] = {
-        years: Number(years),
-        note: note?.trim() ?? "",
-        services: services?.split(",").map((item) => item.trim()).filter(Boolean)
-      };
-    }
-    setProfile({ ...profile, skills });
+    setProfile({ ...profile, skills: parseSkills(value) });
   }
 
   function updateExperience(value: string) {
-    const experience = value
-      .split(/\n\s*\n/)
-      .map((block) => block.trim())
-      .filter(Boolean)
-      .map((block) => {
-        const [header = "", highlightsLine = "", stackLine = ""] = block.split("\n");
-        const [title = "", company = "", start = "", end = ""] = header.split("|");
-        return {
-          title: title.trim(),
-          company: company.trim(),
-          start: start.trim(),
-          end: end.trim(),
-          highlights: highlightsLine.split(";").map((item) => item.trim()).filter(Boolean),
-          stack: stackLine.split(",").map((item) => item.trim()).filter(Boolean)
-        };
-      });
-    setProfile({ ...profile, experience });
+    setProfile({ ...profile, experience: parseExperience(value) });
+  }
+
+  function updateProjects(value: string) {
+    setProfile({ ...profile, personalProjects: parseProjects(value) });
+  }
+
+  async function smartAdd() {
+    if (smartAdding) return;
+    setSmartAdding(true);
+    setSmartAddStatus("Reading your notes...");
+    try {
+      const nextProfile = await enrichProfileFromText(smartAddText, profile, await getSettings());
+      setProfile(nextProfile);
+      setSmartAddText("");
+      setSmartAddStatus("Profile updated. Review the sections below.");
+    } catch (error) {
+      setSmartAddStatus(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSmartAdding(false);
+    }
   }
 
   async function importSelectedCv(event: React.ChangeEvent<HTMLInputElement>) {
@@ -290,6 +275,41 @@ function ProfilePanel({
           <p>Canonical facts only. Changes save automatically.</p>
         </div>
         <span className="saveStamp">{saveStatus}</span>
+      </div>
+
+      <div className="smartProfileAdd">
+        <div>
+          <Sparkles size={16} />
+          <span>Smart add</span>
+        </div>
+        <p>Paste project notes, résumé text, a bio, or facts you want available for applications.</p>
+        <textarea
+          rows={6}
+          placeholder="Paste anything about your work, projects, skills, education, or preferences..."
+          value={smartAddText}
+          onChange={(event) => setSmartAddText(event.target.value)}
+        />
+        <button disabled={smartAdding || !smartAddText.trim()} onClick={() => void smartAdd()}>
+          <Sparkles size={15} />
+          {smartAdding ? "Adding to profile..." : "Add with AI"}
+        </button>
+        {smartAddStatus && <p className="smartProfileStatus">{smartAddStatus}</p>}
+      </div>
+
+      <div className="profileSection">
+        <div className="profileSectionHeading">
+          <h3>Additional answer knowledge</h3>
+          <p>Paste completed Q&amp;As or nuanced facts that do not fit another profile section.</p>
+        </div>
+        <label className="field">
+          <span>Facts AI may use in application answers</span>
+          <textarea
+            rows={10}
+            value={profile.additionalKnowledge}
+            onChange={(event) => update("additionalKnowledge", event.target.value)}
+            placeholder="Example: I advise non-technical fintech clients during implementations..."
+          />
+        </label>
       </div>
 
       <label className="importCv">
@@ -383,11 +403,15 @@ function ProfilePanel({
         </div>
       <label className="field">
         <span>Skills, one per line: name|years|note|services</span>
-        <textarea rows={6} value={skillsText} onChange={(event) => updateSkills(event.target.value)} />
+        <textarea rows={6} value={skillsText} onChange={(event) => setSkillsText(event.target.value)} onBlur={() => updateSkills(skillsText)} />
       </label>
       <label className="field">
         <span>Experience, one block per company: title|company|start|end, then responsibilities, then stack</span>
-        <textarea rows={10} value={experienceText} onChange={(event) => updateExperience(event.target.value)} />
+        <textarea rows={10} value={experienceText} onChange={(event) => setExperienceText(event.target.value)} onBlur={() => updateExperience(experienceText)} />
+      </label>
+      <label className="field">
+        <span>Personal projects: name|role|start|end, then description, highlights, stack, and url|repository</span>
+        <textarea rows={10} value={projectsText} onChange={(event) => setProjectsText(event.target.value)} onBlur={() => updateProjects(projectsText)} />
       </label>
       </div>
     </section>

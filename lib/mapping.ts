@@ -45,10 +45,14 @@ export async function memoryValue(field: FieldDescriptor): Promise<FieldFill | u
   });
   const exact = memories.find((memory) => memory.questionHash === questionHash(field.question));
   const match = exact ?? fuse.search(field.question)[0]?.item;
-  if (!match) return undefined;
+  if (!match || answerHasPlaceholder(match.answer)) return undefined;
 
   await db.answerMemory.update(match.id!, { lastUsed: new Date().toISOString() });
   return { id: field.id, value: match.answer, source: "memory", confidence: exact ? 1 : 0.82 };
+}
+
+export function answerHasPlaceholder(value: string): boolean {
+  return /\[\s*todo\b|\btodo\s*:/i.test(value);
 }
 
 export async function rememberAnswer(questionText: string, answer: string): Promise<void> {

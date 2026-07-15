@@ -189,6 +189,58 @@ h3 {
   margin: 0;
 }
 
+.smartProfileAdd {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  border: 1px solid #9ebcaf;
+  border-radius: 10px;
+  background: linear-gradient(135deg, rgba(232, 245, 238, 0.95), rgba(255, 250, 242, 0.92));
+  padding: 12px;
+}
+
+.smartProfileAdd > div {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #1f6654;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.smartProfileAdd > p,
+.smartProfileAdd textarea,
+.smartProfileAdd .smartProfileStatus {
+  grid-column: 1 / -1;
+}
+
+.smartProfileAdd > p,
+.smartProfileStatus {
+  color: #52665d;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.smartProfileAdd button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 150px;
+  border: 1px solid #27745f;
+  border-radius: 7px;
+  background: #27745f;
+  color: #fffdf8;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.smartProfileAdd button:disabled {
+  cursor: default;
+  opacity: 0.58;
+}
+
 .profileSectionHeading h3 {
   font-size: 14px;
 }
@@ -986,6 +1038,26 @@ textarea:focus {
 
 :root[data-theme="dark"] .profileSectionHeading p {
   color: #c3ceda;
+}
+
+:root[data-theme="dark"] .smartProfileAdd {
+  border-color: #2f765f;
+  background: linear-gradient(135deg, rgba(15, 54, 43, 0.96), rgba(22, 31, 45, 0.96));
+}
+
+:root[data-theme="dark"] .smartProfileAdd > div {
+  color: #a7f3d0;
+}
+
+:root[data-theme="dark"] .smartProfileAdd > p,
+:root[data-theme="dark"] .smartProfileStatus {
+  color: #c3d8cf;
+}
+
+:root[data-theme="dark"] .smartProfileAdd button {
+  border-color: #34d399;
+  background: #047857;
+  color: #ecfdf5;
 }
 
 :root[data-theme="dark"] .importCv.secondaryUpload {

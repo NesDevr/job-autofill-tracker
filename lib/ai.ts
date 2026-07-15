@@ -1,4 +1,4 @@
-import { rememberAnswer } from "./mapping";
+import { answerHasPlaceholder, rememberAnswer } from "./mapping";
 import { normalizeCompensationCurrency } from "./compensation";
 import { normalizeProfilePhone } from "./profileValues";
 import { EMPTY_PROFILE, type Application, type Compensation, type FieldDescriptor, type FieldFill, type Profile, type Settings } from "./schema";
@@ -21,7 +21,7 @@ type OpenAiResponse = {
   output_text?: string;
 };
 
-type CvProfileDraft = Omit<Profile, "skills"> & {
+type ProfileDraft = Omit<Profile, "skills"> & {
   skills: Array<{
     name: string;
     years: number;
@@ -47,13 +47,18 @@ const singleAnswerSchema = {
   }
 };
 
-const cvProfileSchema = {
+const naturalAnswerInstructions =
+  "Answer job-application questions in first person using only the candidate facts provided. Sound like a normal, relaxed professional speaking plainly—not a résumé, cover letter, sales pitch, or formal template. Answer the exact question directly. Default to 2–5 short sentences and under 90 words; use more only when the question explicitly asks for detail. Use contractions when natural. Include only the strongest relevant details instead of listing everything. Avoid canned introductions, conclusions, headings, bullet points, corporate clichés, inflated claims, and overly polished wording. Never write TODO, placeholders, bracketed notes, or mention missing profile data. If a fact is unknown, omit it. If no relevant experience is provided, say plainly that you do not have direct experience yet and stop. Never invent tools, employers, years, credentials, metrics, locations, authorization, salary, or availability.";
+
+const profileSchema = {
   type: "object",
   additionalProperties: false,
   required: [
     "identity",
     "workAuthorization",
     "experience",
+    "personalProjects",
+    "additionalKnowledge",
     "skills",
     "education",
     "demographics",
@@ -136,6 +141,26 @@ const cvProfileSchema = {
         }
       }
     },
+    personalProjects: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["name", "description", "role", "start", "end", "highlights", "stack", "url", "repository"],
+        properties: {
+          name: { type: "string" },
+          description: { type: "string" },
+          role: { type: "string" },
+          start: { type: "string" },
+          end: { type: "string" },
+          highlights: { type: "array", items: { type: "string" } },
+          stack: { type: "array", items: { type: "string" } },
+          url: { type: "string" },
+          repository: { type: "string" }
+        }
+      }
+    },
+    additionalKnowledge: { type: "string" },
     skills: {
       type: "array",
       items: {
@@ -255,13 +280,12 @@ export async function draftAnswers(
   }));
 
   const text = await createOpenAiJson(settings, {
-    instructions:
-      "You help a candidate fill job applications. Write in first person. Use only the facts provided. Never invent tools, years, employers, credentials, locations, or authorization. If a needed fact is missing, include a clear [TODO] placeholder.",
+    instructions: naturalAnswerInstructions,
     input: [
       {
         role: "user",
         content: JSON.stringify({
-          candidateFacts: profile,
+          candidateFacts: profileFactsForAi(profile),
           jobDescription,
           questions: questions.map(({ id, type, question, options }) => ({ id, type, question, options })),
           returnShape: { "1": "answer for question 1" }
@@ -277,7 +301,7 @@ export async function draftAnswers(
   const fills: FieldFill[] = [];
   for (const question of questions) {
     const value = parsed[question.id];
-    if (!value) continue;
+    if (!value || answerHasPlaceholder(value)) continue;
     fills.push({ id: question.fieldId, value, source: "ai", confidence: 0.7 });
     await rememberAnswer(question.question, value);
   }
@@ -293,13 +317,12 @@ export async function draftSingleAnswer(
   if (!question.trim()) throw new Error("Paste a question first.");
 
   const text = await createOpenAiJson(settings, {
-    instructions:
-      "Draft a concise professional job-application answer in first person. Write like a capable human, not a formal template. Use only the candidate facts provided. Do not invent tools, employers, years, credentials, locations, authorization, salary, or availability. If a necessary fact is missing, include a brief [TODO: ...] placeholder instead of guessing. Return only the answer text.",
+    instructions: `${naturalAnswerInstructions} Return only the answer text.`,
     input: [
       {
         role: "user",
         content: JSON.stringify({
-          candidateFacts: profile,
+          candidateFacts: profileFactsForAi(profile),
           question: question.trim()
         })
       }
@@ -310,6 +333,7 @@ export async function draftSingleAnswer(
   });
 
   const parsed = JSON.parse(text) as { answer: string };
+  if (answerHasPlaceholder(parsed.answer)) throw new Error("AI returned a placeholder instead of a usable answer.");
   await rememberAnswer(question, parsed.answer);
   return parsed.answer;
 }
@@ -321,7 +345,7 @@ export async function importProfileFromCv(
   settings: Settings
 ): Promise<Profile> {
   if (!settings.apiKey) throw new Error("OpenAI API key is required before importing a CV.");
-  const { resumeFile: _resumeFile, coverLetterFile: _coverLetterFile, ...profileFacts } = currentProfile;
+  const profileFacts = profileFactsForAi(currentProfile);
 
   const text = await createOpenAiJson(settings, {
     instructions:
@@ -335,7 +359,7 @@ export async function importProfileFromCv(
             text: JSON.stringify({
               existingProfile: profileFacts,
               targetShape:
-                "Return a complete profile draft. Skills must be an array with name, years, note, and services.",
+                "Return a complete profile draft. Skills must be an array with name, years, note, and services. Keep personal projects separate from employment experience.",
               resumeFileRef: fileName
             })
           },
@@ -348,11 +372,42 @@ export async function importProfileFromCv(
       }
     ],
     schemaName: "cv_profile_import",
-    schema: cvProfileSchema,
+    schema: profileSchema,
     maxOutputTokens: 3000
   });
 
-  return cvDraftToProfile(JSON.parse(text) as CvProfileDraft);
+  return profileDraftToProfile(JSON.parse(text) as ProfileDraft);
+}
+
+export async function enrichProfileFromText(
+  pastedText: string,
+  currentProfile: Profile,
+  settings: Settings
+): Promise<Profile> {
+  if (!settings.apiKey) throw new Error("OpenAI API key is required before adding profile facts.");
+  if (!pastedText.trim()) throw new Error("Paste some profile information first.");
+  const { resumeFile, coverLetterFile } = currentProfile;
+  const profileFacts = profileFactsForAi(currentProfile);
+
+  const text = await createOpenAiJson(settings, {
+    instructions:
+      "Merge explicit candidate facts from the pasted text into the existing profile. Return the complete profile. Preserve every existing value unless the pasted text clearly adds, expands, or corrects it. Never erase existing facts because they are absent from the pasted text. Do not infer demographics, work authorization, legal answers, salary, dates, employers, technologies, metrics, or credentials. Recognize personal software projects separately from employment. Put useful factual details that do not fit a structured field—such as client-facing responsibilities, AI tool usage, domain expertise, or completed application Q&A—into additionalKnowledge without losing the original meaning. Deduplicate experience, projects, skills, education, and additional knowledge. Use empty values only where the existing profile is already empty and the pasted text provides nothing. Keep resumeFileRef unchanged.",
+    input: [
+      {
+        role: "user",
+        content: JSON.stringify({ existingProfile: profileFacts, pastedText: pastedText.trim() })
+      }
+    ],
+    schemaName: "profile_text_merge",
+    schema: profileSchema,
+    maxOutputTokens: 4000
+  });
+
+  return {
+    ...profileDraftToProfile(JSON.parse(text) as ProfileDraft),
+    resumeFile,
+    coverLetterFile
+  };
 }
 
 export async function draftApplicationFromJobPosting(
@@ -404,6 +459,11 @@ function normalizeExtractedCompensation(compensation: Compensation | undefined, 
 
 function normalizeLooseText(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function profileFactsForAi(profile: Profile): Omit<Profile, "resumeFile" | "coverLetterFile"> {
+  const { resumeFile: _resumeFile, coverLetterFile: _coverLetterFile, ...profileFacts } = profile;
+  return profileFacts;
 }
 
 async function createOpenAiJson(
@@ -468,7 +528,7 @@ function extractOpenAiText(payload: OpenAiResponse): string {
   throw new Error("OpenAI response did not include output text.");
 }
 
-function cvDraftToProfile(draft: CvProfileDraft): Profile {
+function profileDraftToProfile(draft: ProfileDraft): Profile {
   const skills: Profile["skills"] = {};
   for (const skill of draft.skills) {
     if (!skill.name.trim()) continue;
