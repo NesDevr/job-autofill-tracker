@@ -17,7 +17,7 @@ export function setNativeValue(el: HTMLInputElement | HTMLTextAreaElement, value
 
 export async function applyFill(target: FillTarget, fill: FieldFill): Promise<ApplyFillResult> {
   if (Array.isArray(target)) return verified(false, "Choose this radio option manually.");
-  if (isHyperlinkTrigger(target)) return fillHyperlink(target, String(fill.value));
+  if (isHyperlinkTrigger(target)) return verified(false, "Add this hyperlink manually.");
 
   if (target instanceof HTMLTextAreaElement) {
     setNativeValue(target, String(fill.value));
@@ -50,27 +50,6 @@ export async function applyFill(target: FillTarget, fill: FieldFill): Promise<Ap
   return verified(textMatches(target.value, fill.value), "Input did not retain the value.");
 }
 
-async function fillHyperlink(trigger: HTMLElement, value: string): Promise<ApplyFillResult> {
-  trigger.click();
-  const dialog = await waitForElement(() => Array.from(document.querySelectorAll<HTMLElement>("[role=dialog], .modal, .modalWindow")).find(isVisible));
-  if (!dialog) return verified(false, "Hyperlink editor did not open.");
-  const inputs = Array.from(dialog.querySelectorAll<HTMLInputElement>("input[type=url], input[type=text]")).filter(isVisible);
-  const urlInput = inputs.find((input) => /url/i.test(`${input.name} ${input.getAttribute("aria-label") || ""}`));
-  if (!urlInput) return verified(false, "Hyperlink editor has no visible URL field.");
-  const friendlyName = inputs.find((input) => /friendly name/i.test(input.getAttribute("aria-label") || ""));
-  if (friendlyName && !friendlyName.value) setNativeValue(friendlyName, /linkedin/i.test(trigger.textContent || "") ? "LinkedIn" : "Profile link");
-  setNativeValue(urlInput, value);
-  await nextTask();
-  const save = Array.from(dialog.querySelectorAll<HTMLElement>("button, [role=button], input[type=button]")).find((item) =>
-    /^(add|save|ok|done)$/i.test((item.innerText || item.getAttribute("value") || "").trim())
-  );
-  if (!save) return verified(false, "Hyperlink editor has no recognizable save action.");
-  if (save instanceof HTMLButtonElement && save.disabled) return verified(false, "Hyperlink editor did not accept the URL.");
-  save.click();
-  await nextTask();
-  return verified(true, "");
-}
-
 function matchingOption(options: HTMLOptionElement[], value: string | boolean): HTMLOptionElement | undefined {
   const desired = typeof value === "boolean" ? (value ? "Yes" : "No") : String(value);
   return options.find((option) => normalized(option.text) === normalized(desired))
@@ -98,22 +77,4 @@ function normalized(value: string): string {
 
 function verified(ok: boolean, detail: string): ApplyFillResult {
   return { ok, detail: ok ? "" : detail };
-}
-
-function isVisible(element: HTMLElement): boolean {
-  const rect = element.getBoundingClientRect();
-  return rect.width > 0 && rect.height > 0;
-}
-
-async function waitForElement<T>(read: () => T | undefined | null): Promise<T | undefined> {
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    const value = read();
-    if (value) return value;
-    await new Promise((resolve) => window.setTimeout(resolve, 50));
-  }
-  return undefined;
-}
-
-function nextTask(): Promise<void> {
-  return new Promise((resolve) => window.setTimeout(resolve, 0));
 }

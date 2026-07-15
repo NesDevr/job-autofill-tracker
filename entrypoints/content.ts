@@ -104,8 +104,8 @@ async function fillCurrentForm(): Promise<{ ok: true; filled: number; resumeOpen
     const target = fieldRefs.get(field.id);
     if (isLegalConfirmation(field)) {
       review.set(fieldKey(field), reviewItem(field, "confirmation", "Review and confirm this declaration on the page."));
-    } else if (target && isPageSpecificChoice(field, target)) {
-      review.set(fieldKey(field), reviewItem(field, "confirmation", "Choose this option manually on the page."));
+    } else if (target && isManualPageControl(field, target)) {
+      review.set(fieldKey(field), reviewItem(field, "confirmation", "Complete this control manually on the page."));
     } else if (target && targetHasValue(target)) {
       review.set(fieldKey(field), reviewItem(field, "filled", "Already complete."));
     }
@@ -132,8 +132,8 @@ async function fillPass(fields: FieldDescriptor[], profile: Profile, review: Map
       review.set(fieldKey(field), reviewItem(field, "confirmation", "Review and confirm this declaration on the page."));
       return false;
     }
-    if (isPageSpecificChoice(field, target)) {
-      review.set(fieldKey(field), reviewItem(field, "confirmation", "Choose this option manually on the page."));
+    if (isManualPageControl(field, target)) {
+      review.set(fieldKey(field), reviewItem(field, "confirmation", "Complete this control manually on the page."));
       return false;
     }
     if (targetHasValue(target)) {
@@ -170,8 +170,8 @@ async function fillPass(fields: FieldDescriptor[], profile: Profile, review: Map
   }
 }
 
-function isPageSpecificChoice(field: FieldDescriptor, target: FillTarget): boolean {
-  return field.type === "combobox" || Array.isArray(target);
+function isManualPageControl(field: FieldDescriptor, target: FillTarget): boolean {
+  return field.type === "combobox" || field.type === "hyperlink" || Array.isArray(target);
 }
 
 function reviewItem(field: FieldDescriptor, status: AutofillReviewItem["status"], detail: string): AutofillReviewItem {
