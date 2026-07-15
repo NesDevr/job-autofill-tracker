@@ -1,12 +1,13 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Building2, CalendarClock, ChevronDown, ChevronRight, ClipboardCopy, ClipboardPaste, ExternalLink, LayoutDashboard, LoaderCircle, MessageSquareText, Plus, Trash2, Wand2 } from "lucide-react";
-import { draftApplicationFromJobPosting, draftSingleAnswer } from "../../lib/ai";
+import { Building2, CalendarClock, ChevronDown, ChevronRight, ClipboardCopy, ClipboardPaste, ExternalLink, LayoutDashboard, LoaderCircle, MessageSquareText, Plus, RefreshCw, Sparkles, Trash2, UserRound, Wand2, X } from "lucide-react";
+import { draftApplicationFromJobPosting, draftSingleAnswer, enrichProfileFromText } from "../../lib/ai";
 import { normalizeCompensationCurrency } from "../../lib/compensation";
 import { sendAutofillMessage } from "../../lib/autofill";
 import { db } from "../../lib/db";
-import type { Application, ApplicationStatus, AutofillReviewItem, CompensationCurrency, CompensationPeriod } from "../../lib/schema";
-import { clearSidebarLaunch, getPendingApplications, getProfile, getSettings, getSidebarLaunch, removePendingApplication } from "../../lib/storage";
+import { formatExperience, formatProjects, formatSkills, parseExperience, parseProjects, parseSkills } from "../../lib/profileText";
+import type { Application, ApplicationStatus, AutofillReviewItem, CompensationCurrency, CompensationPeriod, Profile } from "../../lib/schema";
+import { clearSidebarLaunch, getPendingApplications, getProfile, getSettings, getSidebarLaunch, removePendingApplication, saveProfile, setDashboardLaunch } from "../../lib/storage";
 import { applyTheme } from "../../lib/theme";
 import "./styles.css";
 
@@ -34,6 +35,9 @@ const emptyManualDraft = {
 function SidePanel() {
   const [stats, setStats] = useState<SidePanelStats>({ dayCount: 0, yesterdayCount: 0, weekCount: 0 });
   const [applications, setApplications] = useState<Application[]>([]);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [profileSaveStatus, setProfileSaveStatus] = useState("Saved");
   const [trackOpen, setTrackOpen] = useState(true);
   const [trackerQuery, setTrackerQuery] = useState("");
   const [trackerStatus, setTrackerStatus] = useState<TrackerStatusFilter>("All");
@@ -48,6 +52,7 @@ function SidePanel() {
   const [draftedAnswer, setDraftedAnswer] = useState("");
   const [autofillReview, setAutofillReview] = useState<AutofillReviewItem[]>([]);
   const [status, setStatus] = useState("");
+  const profileSaveReady = useRef(false);
 
   useEffect(() => {
     void loadInitialState();
@@ -63,8 +68,24 @@ function SidePanel() {
     return () => chrome.storage.onChanged.removeListener(handleStorageChange);
   }, []);
 
+  useEffect(() => {
+    if (!profile) return;
+    if (!profileSaveReady.current) {
+      profileSaveReady.current = true;
+      return;
+    }
+    setProfileSaveStatus("Saving...");
+    const timer = window.setTimeout(() => {
+      void saveProfile(profile)
+        .then(() => setProfileSaveStatus(`Saved ${new Date().toLocaleTimeString()}`))
+        .catch((error: unknown) => setProfileSaveStatus(error instanceof Error ? error.message : String(error)));
+    }, 550);
+    return () => window.clearTimeout(timer);
+  }, [profile]);
+
   async function loadInitialState() {
-    await Promise.all([loadTrackingData(), applySavedTheme()]);
+    const [, , savedProfile] = await Promise.all([loadTrackingData(), applySavedTheme(), getProfile()]);
+    setProfile(savedProfile);
     await consumeTrackerLaunch();
   }
 
@@ -75,6 +96,8 @@ function SidePanel() {
     const pending = pendingApplications.find((item) => item.id === launch.pendingId);
     if (!pending) throw new Error(`Pending application ${launch.pendingId} was not found.`);
     setTrackOpen(true);
+    setProfileOpen(false);
+    setAnswerOpen(false);
     setManualOpen(false);
     setPasteOpen(true);
     setActivePendingId(pending.id);
@@ -122,8 +145,46 @@ function SidePanel() {
   }
 
   async function openDashboard() {
+    await setDashboardLaunch({ tab: "tracker", createdAt: new Date().toISOString() });
     await chrome.runtime.openOptionsPage();
     window.close();
+  }
+
+  function toggleProfile() {
+    const nextOpen = !profileOpen;
+    setProfileOpen(nextOpen);
+    if (nextOpen) {
+      setTrackOpen(false);
+      setAnswerOpen(false);
+    }
+  }
+
+  function toggleTracker() {
+    const nextOpen = !trackOpen;
+    setTrackOpen(nextOpen);
+    if (nextOpen) {
+      setProfileOpen(false);
+      setAnswerOpen(false);
+    }
+  }
+
+  function toggleAnswer() {
+    const nextOpen = !answerOpen;
+    setAnswerOpen(nextOpen);
+    if (nextOpen) {
+      setProfileOpen(false);
+      setTrackOpen(false);
+    }
+  }
+
+  function updateProfile(path: string, value: string | boolean) {
+    if (!profile) return;
+    const next = structuredClone(profile);
+    const keys = path.split(".");
+    let cursor = next as unknown as Record<string, unknown>;
+    for (const key of keys.slice(0, -1)) cursor = cursor[key] as Record<string, unknown>;
+    cursor[keys.at(-1)!] = value;
+    setProfile(next);
   }
 
   function toggleManualMode() {
@@ -261,10 +322,16 @@ function SidePanel() {
           <p>Job Autofill</p>
           <h1>Quick desk</h1>
         </div>
-        <button className="dashboardIcon" title="Open dashboard" onClick={() => void openDashboard()}>
-          <LayoutDashboard size={17} />
-          <span>Dashboard</span>
-        </button>
+        <div className="headerActions">
+          <button className="headerAction profileAction" title="View and edit profile" aria-pressed={profileOpen} onClick={toggleProfile}>
+            <UserRound size={16} />
+            <span>Profile</span>
+          </button>
+          <button className="headerAction" title="Open dashboard" onClick={() => void openDashboard()}>
+            <LayoutDashboard size={16} />
+            <span>Dashboard</span>
+          </button>
+        </div>
       </header>
 
       <section className="statGrid" aria-label="Tracking summary">
@@ -278,15 +345,24 @@ function SidePanel() {
           <Wand2 size={15} />
           <span>Autofill</span>
         </button>
-        <button className="trackButton" title="Toggle tracker" aria-pressed={trackOpen} onClick={() => setTrackOpen(!trackOpen)}>
+        <button className="trackButton" title="Toggle tracker" aria-pressed={trackOpen} onClick={toggleTracker}>
           <CalendarClock size={15} />
           <span>Tracker</span>
         </button>
-        <button className="answerButton" title="Draft an answer" aria-pressed={answerOpen} onClick={() => setAnswerOpen(!answerOpen)}>
+        <button className="answerButton" title="Draft an answer" aria-pressed={answerOpen} onClick={toggleAnswer}>
           <MessageSquareText size={15} />
           <span>Answer</span>
         </button>
       </div>
+
+      {profileOpen && profile && (
+        <SidebarProfile
+          profile={profile}
+          saveStatus={profileSaveStatus}
+          onChange={updateProfile}
+          onReplace={setProfile}
+        />
+      )}
 
       {trackOpen && (
         <section className="trackPanel">
@@ -452,14 +528,27 @@ function SidePanel() {
         </section>
       )}
 
-      {autofillReview.length > 0 && <AutofillReview items={autofillReview} />}
+      {autofillReview.length > 0 && (
+        <AutofillReview
+          items={autofillReview}
+          onRefresh={autofillCurrentPage}
+          onClear={() => setAutofillReview([])}
+        />
+      )}
 
-      {status && <p className="status">{status}</p>}
+      {status && (
+        <div className="statusMessage">
+          <p className="status">{status}</p>
+          <button type="button" title="Dismiss message" aria-label="Dismiss message" onClick={() => setStatus("")}>
+            <X size={13} />
+          </button>
+        </div>
+      )}
     </main>
   );
 }
 
-function AutofillReview({ items }: { items: AutofillReviewItem[] }) {
+function AutofillReview({ items, onRefresh, onClear }: { items: AutofillReviewItem[]; onRefresh: () => Promise<void>; onClear: () => void }) {
   const outstanding = items.filter((item) => item.status !== "filled");
   const filled = items.length - outstanding.length;
   return (
@@ -469,7 +558,17 @@ function AutofillReview({ items }: { items: AutofillReviewItem[] }) {
           <span>Autofill review</span>
           <strong>{outstanding.length === 0 ? "Ready" : `${outstanding.length} to check`}</strong>
         </div>
-        <span>{filled} verified</span>
+        <div className="autofillReviewMeta">
+          <span>{filled} verified</span>
+          <div className="autofillReviewActions">
+            <button type="button" title="Refresh autofill review" aria-label="Refresh autofill review" onClick={() => void onRefresh()}>
+              <RefreshCw size={12} />
+            </button>
+            <button type="button" title="Clear autofill review" aria-label="Clear autofill review" onClick={onClear}>
+              <X size={13} />
+            </button>
+          </div>
+        </div>
       </div>
       {outstanding.length === 0 ? (
         <p className="autofillReady">Every detected field was filled and verified.</p>
@@ -488,6 +587,219 @@ function AutofillReview({ items }: { items: AutofillReviewItem[] }) {
       )}
     </section>
   );
+}
+
+function SidebarProfile({
+  profile,
+  saveStatus,
+  onChange,
+  onReplace
+}: {
+  profile: Profile;
+  saveStatus: string;
+  onChange: (path: string, value: string | boolean) => void;
+  onReplace: (profile: Profile) => void;
+}) {
+  const [smartAddText, setSmartAddText] = useState("");
+  const [smartAddStatus, setSmartAddStatus] = useState("");
+  const [smartAdding, setSmartAdding] = useState(false);
+  const skillsText = formatSkills(profile.skills);
+  const experienceText = formatExperience(profile.experience);
+  const projectsText = formatProjects(profile.personalProjects);
+  const [skillsDraft, setSkillsDraft] = useState(skillsText);
+  const [experienceDraft, setExperienceDraft] = useState(experienceText);
+  const [projectsDraft, setProjectsDraft] = useState(projectsText);
+
+  function replaceList(path: "eligibleCountries" | "timezonesComfortable", value: string) {
+    const next = structuredClone(profile);
+    next.workAuthorization[path] = value.split(",").map((item) => item.trim()).filter(Boolean);
+    onReplace(next);
+  }
+
+  function replaceSkills(value: string) {
+    onReplace({ ...profile, skills: parseSkills(value) });
+  }
+
+  function replaceExperience(value: string) {
+    onReplace({ ...profile, experience: parseExperience(value) });
+  }
+
+  function replaceProjects(value: string) {
+    onReplace({ ...profile, personalProjects: parseProjects(value) });
+  }
+
+  async function smartAdd() {
+    if (smartAdding) return;
+    setSmartAdding(true);
+    setSmartAddStatus("Reading your notes...");
+    try {
+      const nextProfile = await enrichProfileFromText(smartAddText, profile, await getSettings());
+      setSkillsDraft(formatSkills(nextProfile.skills));
+      setExperienceDraft(formatExperience(nextProfile.experience));
+      setProjectsDraft(formatProjects(nextProfile.personalProjects));
+      onReplace(nextProfile);
+      setSmartAddText("");
+      setSmartAddStatus("Profile updated. Review the sections below.");
+    } catch (error) {
+      setSmartAddStatus(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSmartAdding(false);
+    }
+  }
+
+  return (
+    <section className="sidebarProfile" aria-label="Master profile editor">
+      <div className="sidebarProfileHeader">
+        <div>
+          <span>Master profile</span>
+          <strong>{profile.identity.firstName || profile.identity.lastName
+            ? `${profile.identity.firstName} ${profile.identity.lastName}`.trim()
+            : "Add your details"}</strong>
+        </div>
+        <span className="profileSaveStatus">{saveStatus}</span>
+      </div>
+
+      <div className="smartProfileAdd compact">
+        <div><Sparkles size={14} /><span>Smart add</span></div>
+        <textarea
+          rows={5}
+          placeholder="Paste project notes, résumé text, a bio, skills, or any facts to add..."
+          value={smartAddText}
+          onChange={(event) => setSmartAddText(event.target.value)}
+        />
+        <button disabled={smartAdding || !smartAddText.trim()} onClick={() => void smartAdd()}>
+          <Sparkles size={14} />
+          {smartAdding ? "Adding..." : "Add with AI"}
+        </button>
+        {smartAddStatus && <p className="smartProfileStatus">{smartAddStatus}</p>}
+      </div>
+
+      <ProfileSection title="Additional answer knowledge" open>
+        <label className="profileField profileWide">
+          <span>Completed Q&amp;As and other useful facts</span>
+          <textarea
+            rows={8}
+            value={profile.additionalKnowledge}
+            onChange={(event) => onChange("additionalKnowledge", event.target.value)}
+            placeholder="Paste facts that AI should remember for future answers..."
+          />
+        </label>
+      </ProfileSection>
+
+      <ProfileSection title="Identity & contact" open>
+        <div className="profileFieldGrid">
+          <ProfileField label="First name" value={profile.identity.firstName} onChange={(value) => onChange("identity.firstName", value)} />
+          <ProfileField label="Middle name" value={profile.identity.middleName} onChange={(value) => onChange("identity.middleName", value)} />
+          <ProfileField label="Last name" value={profile.identity.lastName} onChange={(value) => onChange("identity.lastName", value)} />
+          <ProfileField label="Preferred name" value={profile.identity.preferredName} onChange={(value) => onChange("identity.preferredName", value)} />
+          <ProfileField label="Email" value={profile.identity.email} onChange={(value) => onChange("identity.email", value)} wide />
+          <ProfileField label="Country code" value={profile.identity.phoneCountryCode} onChange={(value) => onChange("identity.phoneCountryCode", value)} />
+          <ProfileField label="Phone" value={profile.identity.phone} onChange={(value) => onChange("identity.phone", value)} />
+          <ProfileField label="Address line 1" value={profile.identity.address.line1} onChange={(value) => onChange("identity.address.line1", value)} wide />
+          <ProfileField label="Address line 2" value={profile.identity.address.line2} onChange={(value) => onChange("identity.address.line2", value)} wide />
+          <ProfileField label="Postal code" value={profile.identity.address.postalCode} onChange={(value) => onChange("identity.address.postalCode", value)} />
+          <ProfileField label="City" value={profile.identity.location.city} onChange={(value) => onChange("identity.location.city", value)} />
+          <ProfileField label="State" value={profile.identity.location.state} onChange={(value) => onChange("identity.location.state", value)} />
+          <ProfileField label="Country" value={profile.identity.location.country} onChange={(value) => onChange("identity.location.country", value)} />
+          <ProfileField label="LinkedIn" value={profile.identity.links.linkedin} onChange={(value) => onChange("identity.links.linkedin", value)} wide />
+          <ProfileField label="GitHub" value={profile.identity.links.github} onChange={(value) => onChange("identity.links.github", value)} wide />
+          <ProfileField label="Portfolio" value={profile.identity.links.portfolio} onChange={(value) => onChange("identity.links.portfolio", value)} wide />
+        </div>
+      </ProfileSection>
+
+      <ProfileSection title="Authorization & defaults">
+        <div className="profileToggles">
+          <ProfileToggle label="US authorized" checked={profile.workAuthorization.usAuthorized} onChange={(value) => onChange("workAuthorization.usAuthorized", value)} />
+          <ProfileToggle label="Needs sponsorship" checked={profile.workAuthorization.requiresSponsorship} onChange={(value) => onChange("workAuthorization.requiresSponsorship", value)} />
+          <ProfileToggle label="Needs recruitment adjustments" checked={profile.applicationDefaults.needsRecruitmentAdjustments} onChange={(value) => onChange("applicationDefaults.needsRecruitmentAdjustments", value)} />
+          <ProfileToggle label="Previously employed by Fitch" checked={profile.applicationDefaults.previouslyEmployedByFitch} onChange={(value) => onChange("applicationDefaults.previouslyEmployedByFitch", value)} />
+          <ProfileToggle label="Job notifications" checked={profile.applicationDefaults.jobNotifications} onChange={(value) => onChange("applicationDefaults.jobNotifications", value)} />
+        </div>
+        <div className="profileFieldGrid">
+          <ProfileField label="Visa status" value={profile.workAuthorization.visaStatus} onChange={(value) => onChange("workAuthorization.visaStatus", value)} wide />
+          <ProfileField label="English proficiency" value={profile.workAuthorization.englishProficiency} onChange={(value) => onChange("workAuthorization.englishProficiency", value)} wide />
+          <ProfileField label="Eligible countries" value={profile.workAuthorization.eligibleCountries.join(", ")} onChange={(value) => replaceList("eligibleCountries", value)} wide />
+          <ProfileField label="Time zones" value={profile.workAuthorization.timezonesComfortable.join(", ")} onChange={(value) => replaceList("timezonesComfortable", value)} wide />
+          <ProfileField label="Referral source" value={profile.applicationDefaults.referralSource} onChange={(value) => onChange("applicationDefaults.referralSource", value)} />
+          <ProfileField label="Referral details" value={profile.applicationDefaults.referralDetails} onChange={(value) => onChange("applicationDefaults.referralDetails", value)} />
+          <ProfileField label="Employee referral" value={profile.applicationDefaults.employeeReferralName} onChange={(value) => onChange("applicationDefaults.employeeReferralName", value)} wide />
+          <ProfileField label="Adjustment details" value={profile.applicationDefaults.recruitmentAdjustmentsDetails} onChange={(value) => onChange("applicationDefaults.recruitmentAdjustmentsDetails", value)} wide />
+          <ProfileField label="Current employer" value={profile.applicationDefaults.currentEmployer} onChange={(value) => onChange("applicationDefaults.currentEmployer", value)} />
+          <ProfileField label="Current title" value={profile.applicationDefaults.currentTitle} onChange={(value) => onChange("applicationDefaults.currentTitle", value)} />
+          <ProfileField label="Current salary" value={profile.applicationDefaults.currentSalary} onChange={(value) => onChange("applicationDefaults.currentSalary", value)} />
+          <ProfileField label="Desired salary" value={profile.applicationDefaults.desiredSalary} onChange={(value) => onChange("applicationDefaults.desiredSalary", value)} />
+          <ProfileField label="Salary currency" value={profile.applicationDefaults.salaryCurrency} onChange={(value) => onChange("applicationDefaults.salaryCurrency", value)} />
+          <label className="profileField">
+            <span>Profile visibility</span>
+            <select value={profile.applicationDefaults.profileVisibility} onChange={(event) => onChange("applicationDefaults.profileVisibility", event.target.value)}>
+              <option value="">Review each application</option>
+              <option value="Any open role at Fitch">Any open role at Fitch</option>
+              <option value="Only for the roles that I directly apply to">Only directly applied roles</option>
+            </select>
+          </label>
+        </div>
+      </ProfileSection>
+
+      <ProfileSection title="Optional demographics">
+        <div className="profileFieldGrid">
+          <ProfileField label="Gender" value={profile.demographics.gender} onChange={(value) => onChange("demographics.gender", value)} />
+          <ProfileField label="Ethnic origin" value={profile.demographics.race} onChange={(value) => onChange("demographics.race", value)} />
+          <ProfileField label="Veteran status" value={profile.demographics.veteran} onChange={(value) => onChange("demographics.veteran", value)} />
+          <ProfileField label="Disability" value={profile.demographics.disability} onChange={(value) => onChange("demographics.disability", value)} />
+        </div>
+      </ProfileSection>
+
+      <ProfileSection title="Skills, experience & files">
+        <label className="profileField profileWide">
+          <span>Skills · name|years|note|services</span>
+          <textarea rows={5} value={skillsDraft} onChange={(event) => {
+            setSkillsDraft(event.target.value);
+            replaceSkills(event.target.value);
+          }} />
+        </label>
+        <label className="profileField profileWide">
+          <span>Experience · title|company|start|end</span>
+          <textarea rows={8} value={experienceDraft} onChange={(event) => {
+            setExperienceDraft(event.target.value);
+            replaceExperience(event.target.value);
+          }} />
+        </label>
+        <label className="profileField profileWide">
+          <span>Projects · name|role|start|end</span>
+          <textarea rows={8} value={projectsDraft} onChange={(event) => {
+            setProjectsDraft(event.target.value);
+            replaceProjects(event.target.value);
+          }} />
+        </label>
+        <div className="profileFiles">
+          <span>Resume</span><strong>{profile.resumeFile?.name || profile.resumeFileRef || "Not stored"}</strong>
+          <span>Cover letter</span><strong>{profile.coverLetterFile?.name || "Not stored"}</strong>
+        </div>
+      </ProfileSection>
+    </section>
+  );
+}
+
+function ProfileSection({ title, open = false, children }: { title: string; open?: boolean; children: React.ReactNode }) {
+  return (
+    <details className="profileSectionCompact" open={open}>
+      <summary>{title}<ChevronDown size={14} /></summary>
+      <div className="profileSectionBody">{children}</div>
+    </details>
+  );
+}
+
+function ProfileField({ label, value, onChange, wide = false }: { label: string; value: string; onChange: (value: string) => void; wide?: boolean }) {
+  return (
+    <label className={`profileField${wide ? " profileWide" : ""}`}>
+      <span>{label}</span>
+      <input value={value} onChange={(event) => onChange(event.target.value)} />
+    </label>
+  );
+}
+
+function ProfileToggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) {
+  return <label><input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} /> {label}</label>;
 }
 
 function compensationFromDraft(draft: typeof emptyManualDraft) {

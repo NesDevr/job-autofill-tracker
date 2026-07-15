@@ -66,7 +66,12 @@ select {
   line-height: 1;
 }
 
-.dashboardIcon {
+.headerActions {
+  display: flex;
+  gap: 5px;
+}
+
+.headerAction {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -80,6 +85,16 @@ select {
   padding: 0 10px;
   font-size: 11px;
   font-weight: 800;
+}
+
+.headerAction.profileAction {
+  border-color: #27745f;
+  color: #1f6654;
+}
+
+.headerAction.profileAction[aria-pressed="true"] {
+  background: #27745f;
+  color: #fffdf8;
 }
 
 .statGrid {
@@ -161,6 +176,222 @@ select {
   border-radius: 8px;
   background: rgba(255, 250, 242, 0.82);
   padding: 9px;
+}
+
+.sidebarProfile {
+  display: grid;
+  gap: 7px;
+  border: 1px solid #9ebcaf;
+  border-radius: 9px;
+  background: rgba(247, 252, 248, 0.94);
+  padding: 9px;
+}
+
+.sidebarProfileHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 1px 2px 4px;
+}
+
+.sidebarProfileHeader > div {
+  display: grid;
+  gap: 1px;
+}
+
+.sidebarProfileHeader span {
+  color: #557065;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.sidebarProfileHeader strong {
+  font-size: 14px;
+}
+
+.sidebarProfileHeader .profileSaveStatus {
+  max-width: 132px;
+  overflow-wrap: anywhere;
+  color: #27745f;
+  font-size: 9px;
+  text-align: right;
+}
+
+.smartProfileAdd.compact {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 7px;
+  border: 1px solid #b5d2c5;
+  border-radius: 7px;
+  background: linear-gradient(135deg, #edf8f2, #fffaf2);
+  padding: 8px;
+}
+
+.smartProfileAdd.compact > div {
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  gap: 5px;
+  color: #1f6654;
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.smartProfileAdd.compact textarea,
+.smartProfileAdd.compact .smartProfileStatus {
+  grid-column: 1 / -1;
+}
+
+.smartProfileAdd.compact textarea {
+  width: 100%;
+  border: 1px solid #bfd0c8;
+  border-radius: 6px;
+  background: #fff;
+  color: #101820;
+  padding: 7px 8px;
+  font-size: 11px;
+  resize: vertical;
+}
+
+.smartProfileAdd.compact button {
+  display: inline-flex;
+  grid-column: 2;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 31px;
+  border: 1px solid #27745f;
+  border-radius: 6px;
+  background: #27745f;
+  color: #fffdf8;
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.smartProfileAdd.compact button:disabled {
+  cursor: default;
+  opacity: 0.58;
+}
+
+.smartProfileStatus {
+  margin: 0;
+  color: #52665d;
+  font-size: 10px;
+  line-height: 1.3;
+}
+
+.profileSectionCompact {
+  overflow: hidden;
+  border: 1px solid #d3e0da;
+  border-radius: 7px;
+  background: #fffdf8;
+}
+
+.profileSectionCompact summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 34px;
+  padding: 7px 9px;
+  color: #284a3e;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 900;
+  list-style: none;
+}
+
+.profileSectionCompact summary::-webkit-details-marker {
+  display: none;
+}
+
+.profileSectionCompact summary svg {
+  transition: transform 140ms ease;
+}
+
+.profileSectionCompact[open] summary svg {
+  transform: rotate(180deg);
+}
+
+.profileSectionBody {
+  display: grid;
+  gap: 8px;
+  border-top: 1px solid #e3ece7;
+  padding: 8px;
+}
+
+.profileFieldGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.profileField {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.profileField.profileWide,
+.profileWide {
+  grid-column: 1 / -1;
+}
+
+.profileField > span {
+  color: #617168;
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.profileField input,
+.profileField select,
+.profileField textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid #bfd0c8;
+  border-radius: 6px;
+  background: #fff;
+  color: #101820;
+  padding: 7px 8px;
+  font-size: 11px;
+  resize: vertical;
+}
+
+.profileToggles {
+  display: grid;
+  gap: 6px;
+  border: 1px dashed #bed1c7;
+  border-radius: 6px;
+  padding: 7px;
+}
+
+.profileToggles label {
+  color: #435b51;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.profileFiles {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 5px 8px;
+  border: 1px dashed #bed1c7;
+  border-radius: 6px;
+  padding: 7px;
+  font-size: 10px;
+}
+
+.profileFiles span {
+  color: #617168;
+  font-weight: 800;
+}
+
+.profileFiles strong {
+  overflow-wrap: anywhere;
 }
 
 .trackActions {
@@ -528,6 +759,30 @@ select {
   gap: 1px;
 }
 
+.autofillReviewHeader .autofillReviewMeta {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.autofillReviewActions {
+  display: flex;
+  gap: 4px;
+}
+
+.autofillReviewActions button,
+.statusMessage button {
+  display: grid;
+  width: 25px;
+  height: 25px;
+  border: 1px solid #c8b78f;
+  border-radius: 6px;
+  background: #fffdf8;
+  color: #5f5336;
+  cursor: pointer;
+  place-items: center;
+}
+
 .autofillReviewHeader span {
   color: #6b5a32;
   font-size: 10px;
@@ -599,6 +854,25 @@ select {
   line-height: 1.3;
 }
 
+.statusMessage {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-left: 2px solid #64717d;
+  padding-left: 8px;
+}
+
+.statusMessage .status {
+  flex: 1;
+}
+
+.statusMessage button {
+  flex: 0 0 auto;
+  border-color: #c6b9a8;
+  color: #465360;
+}
+
 :root[data-theme="dark"] {
   color: #f4f7fb;
   background: #0d1117;
@@ -629,7 +903,81 @@ select {
   background: rgba(22, 31, 45, 0.94);
 }
 
-:root[data-theme="dark"] .dashboardIcon,
+:root[data-theme="dark"] .sidebarProfile {
+  border-color: #2f765f;
+  background: rgba(15, 34, 29, 0.96);
+}
+
+:root[data-theme="dark"] .sidebarProfileHeader span,
+:root[data-theme="dark"] .profileField > span,
+:root[data-theme="dark"] .profileFiles span {
+  color: #9fc6b7;
+}
+
+:root[data-theme="dark"] .sidebarProfileHeader strong {
+  color: #f0fdf4;
+}
+
+:root[data-theme="dark"] .sidebarProfileHeader .profileSaveStatus {
+  color: #6ee7b7;
+}
+
+:root[data-theme="dark"] .smartProfileAdd.compact {
+  border-color: #2f765f;
+  background: linear-gradient(135deg, #103b30, #111827);
+}
+
+:root[data-theme="dark"] .smartProfileAdd.compact > div {
+  color: #a7f3d0;
+}
+
+:root[data-theme="dark"] .smartProfileAdd.compact textarea {
+  border-color: #3f6558;
+  background: #0f172a;
+  color: #f8fafc;
+}
+
+:root[data-theme="dark"] .smartProfileAdd.compact button {
+  border-color: #34d399;
+  background: #047857;
+  color: #ecfdf5;
+}
+
+:root[data-theme="dark"] .smartProfileStatus {
+  color: #c3d8cf;
+}
+
+:root[data-theme="dark"] .profileSectionCompact {
+  border-color: #315348;
+  background: #111827;
+}
+
+:root[data-theme="dark"] .profileSectionCompact summary {
+  color: #d1fae5;
+}
+
+:root[data-theme="dark"] .profileSectionBody {
+  border-color: #315348;
+}
+
+:root[data-theme="dark"] .profileField input,
+:root[data-theme="dark"] .profileField select,
+:root[data-theme="dark"] .profileField textarea {
+  border-color: #3f6558;
+  background: #0f172a;
+  color: #f8fafc;
+}
+
+:root[data-theme="dark"] .profileToggles,
+:root[data-theme="dark"] .profileFiles {
+  border-color: #3f6558;
+}
+
+:root[data-theme="dark"] .profileToggles label {
+  color: #c6ddd4;
+}
+
+:root[data-theme="dark"] .headerAction,
 :root[data-theme="dark"] .trackActions button,
 :root[data-theme="dark"] .answerPanel .copyButton,
 :root[data-theme="dark"] .trackedJobsHeader button,
@@ -638,6 +986,16 @@ select {
   border-color: #475569;
   background: #1e293b;
   color: #f1f5f9;
+}
+
+:root[data-theme="dark"] .headerAction.profileAction {
+  border-color: #34d399;
+  color: #a7f3d0;
+}
+
+:root[data-theme="dark"] .headerAction.profileAction[aria-pressed="true"] {
+  background: #047857;
+  color: #ecfdf5;
 }
 
 :root[data-theme="dark"] .trackButton {
@@ -746,6 +1104,17 @@ select {
 
 :root[data-theme="dark"] .autofillReviewItem p {
   color: #c3ceda;
+}
+
+:root[data-theme="dark"] .autofillReviewActions button,
+:root[data-theme="dark"] .statusMessage button {
+  border-color: #66542c;
+  background: #1e293b;
+  color: #f5d995;
+}
+
+:root[data-theme="dark"] .statusMessage {
+  border-color: #64748b;
 }
 
 :root[data-theme="dark"] .autofillReady {
