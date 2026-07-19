@@ -1,14 +1,16 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Building2, CalendarClock, ChevronDown, ChevronRight, ClipboardCopy, ClipboardPaste, ExternalLink, LayoutDashboard, LoaderCircle, MessageSquareText, Plus, RefreshCw, Sparkles, Trash2, UserRound, Wand2, X } from "lucide-react";
+import { Building2, CalendarClock, Check, ChevronDown, ChevronRight, ClipboardCopy, ClipboardPaste, ExternalLink, LayoutDashboard, LoaderCircle, MessageSquareText, Plus, RefreshCw, Sparkles, Trash2, UserRound, Wand2, X } from "lucide-react";
 import { draftApplicationFromJobPosting, draftSingleAnswer, enrichProfileFromText } from "../../lib/ai";
 import { normalizeCompensationCurrency } from "../../lib/compensation";
 import { sendAutofillMessage } from "../../lib/autofill";
 import { db } from "../../lib/db";
+import { createDemoApplications } from "../../lib/demo";
 import { formatExperience, formatProjects, formatSkills, parseExperience, parseProjects, parseSkills } from "../../lib/profileText";
-import type { Application, ApplicationStatus, AutofillReviewItem, CompensationCurrency, CompensationPeriod, Profile } from "../../lib/schema";
-import { clearSidebarLaunch, getPendingApplications, getProfile, getSettings, getSidebarLaunch, removePendingApplication, saveProfile, setDashboardLaunch } from "../../lib/storage";
+import type { Application, ApplicationStatus, AutofillReviewItem, CompensationCurrency, CompensationPeriod, Profile, UpworkProposalStatus } from "../../lib/schema";
+import { clearSidebarLaunch, getPendingApplications, getProfile, getSettings, getSidebarLaunch, removePendingApplication, saveProfile, saveSettings, setDashboardLaunch } from "../../lib/storage";
 import { applyTheme } from "../../lib/theme";
+import { changeUpworkStatus, UPWORK_PROPOSAL_STATUSES } from "../../lib/upwork";
 import "./styles.css";
 
 type SidePanelStats = {
@@ -36,6 +38,7 @@ function SidePanel() {
   const [stats, setStats] = useState<SidePanelStats>({ dayCount: 0, yesterdayCount: 0, weekCount: 0 });
   const [applications, setApplications] = useState<Application[]>([]);
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [demoMode, setDemoMode] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [profileSaveStatus, setProfileSaveStatus] = useState("Saved");
   const [trackOpen, setTrackOpen] = useState(true);
@@ -59,7 +62,7 @@ function SidePanel() {
 
     const handleStorageChange = (changes: Record<string, chrome.storage.StorageChange>, areaName: string) => {
       if (areaName !== "local") return;
-      if (changes.settings) void applySavedTheme();
+      if (changes.settings) void loadInitialState();
       if (changes.pendingApplications) void loadTrackingData();
       if (changes.sidebarLaunch) void consumeTrackerLaunch();
     };
@@ -74,6 +77,10 @@ function SidePanel() {
       profileSaveReady.current = true;
       return;
     }
+    if (demoMode) {
+      setProfileSaveStatus("Temporary demo changes");
+      return;
+    }
     setProfileSaveStatus("Saving...");
     const timer = window.setTimeout(() => {
       void saveProfile(profile)
@@ -81,11 +88,16 @@ function SidePanel() {
         .catch((error: unknown) => setProfileSaveStatus(error instanceof Error ? error.message : String(error)));
     }, 550);
     return () => window.clearTimeout(timer);
-  }, [profile]);
+  }, [profile, demoMode]);
 
   async function loadInitialState() {
-    const [, , savedProfile] = await Promise.all([loadTrackingData(), applySavedTheme(), getProfile()]);
+    profileSaveReady.current = false;
+    const settings = await getSettings();
+    setDemoMode(settings.demoMode);
+    applyTheme(settings.theme);
+    const [, savedProfile] = await Promise.all([loadTrackingData(settings.demoMode), getProfile()]);
     setProfile(savedProfile);
+    setProfileSaveStatus(settings.demoMode ? "Temporary demo changes" : "Saved");
     await consumeTrackerLaunch();
   }
 
@@ -106,13 +118,13 @@ function SidePanel() {
     await clearSidebarLaunch();
   }
 
-  async function applySavedTheme() {
-    const settings = await getSettings();
-    applyTheme(settings.theme);
+  async function loadTrackingData(useDemoMode?: boolean) {
+    const activeDemoMode = useDemoMode ?? (await getSettings()).demoMode;
+    const applications = activeDemoMode ? createDemoApplications() : await db.applications.orderBy("dateApplied").reverse().toArray();
+    showApplications(applications);
   }
 
-  async function loadTrackingData() {
-    const applications = await db.applications.orderBy("dateApplied").reverse().toArray();
+  function showApplications(applications: Application[]) {
     const now = Date.now();
     const today = new Date();
     const yesterday = new Date(today);
@@ -145,9 +157,23 @@ function SidePanel() {
   }
 
   async function openDashboard() {
-    await setDashboardLaunch({ tab: "tracker", createdAt: new Date().toISOString() });
-    await chrome.runtime.openOptionsPage();
-    window.close();
+    try {
+      await setDashboardLaunch({ tab: "tracker", createdAt: new Date().toISOString() });
+      await chrome.tabs.create({ url: chrome.runtime.getURL("options.html"), active: true });
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function exitDemoMode() {
+    try {
+      const settings = await getSettings();
+      await saveSettings({ ...settings, demoMode: false });
+      await loadInitialState();
+      setStatus("Demo mode ended.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error));
+    }
   }
 
   function toggleProfile() {
@@ -207,7 +233,8 @@ function SidePanel() {
 
     setStatus("Creating...");
     try {
-      await db.applications.add({
+      const application: Application = {
+        id: demoMode ? Math.max(0, ...applications.map((app) => app.id ?? 0)) + 1 : undefined,
         company: manualDraft.company.trim(),
         role: manualDraft.role.trim(),
         jobUrl: manualDraft.jobUrl.trim(),
@@ -219,12 +246,23 @@ function SidePanel() {
         compensation: compensationFromDraft(manualDraft),
         jobDescription: "",
         answersUsed: [],
-        notes: ""
-      });
+        notes: "",
+        upwork: manualDraft.source.trim().toLowerCase() === "upwork" ? {
+          status: "Submitted",
+          contractType: manualDraft.compensationPeriod === "hour" ? "hourly" : manualDraft.compensationPeriod === "one-time" ? "fixed" : "",
+          proposedAmount: numberOrUndefined(manualDraft.compensationMin) ?? null,
+          currency: manualDraft.compensationCurrency,
+          baseConnects: null,
+          boostBid: null,
+          boostCharged: null
+        } : undefined
+      };
+      if (demoMode) showApplications([application, ...applications]);
+      else await db.applications.add(application);
       setManualDraft(emptyManualDraft);
       setManualOpen(false);
       setStatus("Manual tracker row created.");
-      await loadTrackingData();
+      if (!demoMode) await loadTrackingData();
     } catch (error) {
       setStatus(error instanceof Error ? error.message : String(error));
     }
@@ -238,7 +276,8 @@ function SidePanel() {
       const settings = await getSettings();
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       const draft = await draftApplicationFromJobPosting(postingText, settings, tab?.url ?? "");
-      await db.applications.add({
+      const application: Application = {
+        id: demoMode ? Math.max(0, ...applications.map((app) => app.id ?? 0)) + 1 : undefined,
         company: draft.company,
         role: draft.role,
         jobUrl: draft.jobUrl || tab?.url || "",
@@ -249,9 +288,12 @@ function SidePanel() {
         workMode: draft.workMode,
         compensation: draft.compensation,
         jobDescription: draft.jobDescription,
+        upwork: draft.upwork,
         answersUsed: [],
         notes: ""
-      });
+      };
+      if (demoMode) showApplications([application, ...applications]);
+      else await db.applications.add(application);
       if (activePendingId) {
         await removePendingApplication(activePendingId);
         setActivePendingId(null);
@@ -259,7 +301,7 @@ function SidePanel() {
       setPostingText("");
       setPasteOpen(false);
       setStatus(`Tracked ${draft.company || "Company"} - ${draft.role || "Role"}.`);
-      await loadTrackingData();
+      if (!demoMode) await loadTrackingData();
     } catch (error) {
       setStatus(error instanceof Error ? error.message : String(error));
     } finally {
@@ -270,8 +312,11 @@ function SidePanel() {
   async function updateApplication(app: Application, patch: Partial<Application>) {
     try {
       if (!app.id) throw new Error("Tracked job is missing an id.");
-      await db.applications.update(app.id, patch);
-      await loadTrackingData();
+      if (demoMode) showApplications(applications.map((item) => item.id === app.id ? { ...item, ...patch } : item));
+      else {
+        await db.applications.update(app.id, patch);
+        await loadTrackingData();
+      }
       setStatus("Tracked job updated.");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : String(error));
@@ -282,8 +327,11 @@ function SidePanel() {
     try {
       if (!app.id) throw new Error("Tracked job is missing an id.");
       if (!window.confirm(`Delete ${app.company || "this company"} - ${app.role || "this role"}?`)) return;
-      await db.applications.delete(app.id);
-      await loadTrackingData();
+      if (demoMode) showApplications(applications.filter((item) => item.id !== app.id));
+      else {
+        await db.applications.delete(app.id);
+        await loadTrackingData();
+      }
       setStatus("Tracked job deleted.");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : String(error));
@@ -322,6 +370,11 @@ function SidePanel() {
           <p>Job Autofill</p>
           <h1>Quick desk</h1>
         </div>
+        {demoMode && (
+          <button className="sideDemoBadge" type="button" title="Exit demo mode" onClick={() => void exitDemoMode()}>
+            <Sparkles size={12} /> Exit demo
+          </button>
+        )}
         <div className="headerActions">
           <button className="headerAction profileAction" title="View and edit profile" aria-pressed={profileOpen} onClick={toggleProfile}>
             <UserRound size={16} />
@@ -451,13 +504,13 @@ function SidePanel() {
             <div className="pastePanel">
               <textarea
                 rows={5}
-                placeholder="Paste the job posting"
+                placeholder="Paste a job posting or Upwork proposal summary"
                 value={postingText}
                 onChange={(event) => setPostingText(event.target.value)}
               />
               <button disabled={pasteCreating} onClick={() => void addPastedApplication()}>
                 {pasteCreating && <LoaderCircle className="buttonSpinner" size={15} />}
-                {pasteCreating ? "Creating..." : "Create tracker row"}
+                {pasteCreating ? "Reading..." : "Create with AI"}
               </button>
             </div>
           )}
@@ -826,9 +879,49 @@ function applicationToPasteText(application: Application): string {
     application.location ? `Location: ${application.location}` : "",
     application.workMode ? `Work mode: ${application.workMode}` : "",
     application.compensation?.text ? `Compensation: ${application.compensation.text}` : "",
+    application.upwork ? `Upwork proposal status: ${application.upwork.status}` : "",
+    application.upwork?.contractType ? `Upwork contract type: ${application.upwork.contractType}` : "",
+    application.upwork?.proposedAmount != null ? `Proposed amount: ${application.upwork.proposedAmount} ${application.upwork.currency}` : "",
+    application.upwork?.baseConnects != null ? `Base Connects: ${application.upwork.baseConnects}` : "",
+    application.upwork?.boostBid != null ? `Boost bid: ${application.upwork.boostBid} Connects` : "",
+    application.upwork?.boostCharged != null ? `Boost charged: ${application.upwork.boostCharged} Connects` : "",
     application.jobDescription ? `Job description:\n${application.jobDescription}` : "",
     application.answersUsed.length > 0
       ? `Application answers:\n${application.answersUsed.map((item) => `${item.question}: ${item.answer}`).join("\n")}`
+      : ""
+  ].filter(Boolean).join("\n\n");
+}
+
+function applicationToClipboardText(application: Application): string {
+  const compensation = application.compensation;
+  return [
+    `${application.role || "Untitled role"} at ${application.company || "Unknown company"}`,
+    [
+      `Company: ${application.company}`,
+      `Role: ${application.role}`,
+      `Status: ${application.status}`,
+      `Source: ${application.source}`,
+      `Job URL: ${application.jobUrl}`,
+      `Date applied: ${application.dateApplied.slice(0, 10)}`,
+      application.nextActionDate ? `Next action date: ${application.nextActionDate.slice(0, 10)}` : "",
+      application.location ? `Location: ${application.location}` : "",
+      application.workMode ? `Work mode: ${application.workMode}` : "",
+      application.resumeVersion ? `Resume version: ${application.resumeVersion}` : ""
+    ].filter(Boolean).join("\n"),
+    compensation
+      ? [
+          "Compensation",
+          compensation.text ? `Details: ${compensation.text}` : "",
+          compensation.currency ? `Currency: ${compensation.currency}` : "",
+          compensation.min != null ? `Minimum: ${compensation.min}` : "",
+          compensation.max != null ? `Maximum: ${compensation.max}` : "",
+          compensation.period ? `Period: ${compensation.period}` : ""
+        ].filter(Boolean).join("\n")
+      : "",
+    application.notes ? `Notes\n${application.notes}` : "",
+    application.jobDescription ? `Job description\n${application.jobDescription}` : "",
+    application.answersUsed.length > 0
+      ? `Application answers\n${application.answersUsed.map((item) => `Question: ${item.question}\nAnswer: ${item.answer}`).join("\n\n")}`
       : ""
   ].filter(Boolean).join("\n\n");
 }
@@ -837,6 +930,13 @@ function numberOrUndefined(value: string): number | undefined {
   if (!value.trim()) return undefined;
   const parsed = Number(value.replaceAll(",", ""));
   if (!Number.isFinite(parsed)) throw new Error(`Invalid number: ${value}`);
+  return parsed;
+}
+
+function nullableNumber(value: string): number | null {
+  if (!value.trim()) return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) throw new Error(`Invalid non-negative number: ${value}`);
   return parsed;
 }
 
@@ -865,6 +965,18 @@ function TrackedJob({
   onDelete: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!copied) return;
+    const timer = window.setTimeout(() => setCopied(false), 1500);
+    return () => window.clearTimeout(timer);
+  }, [copied]);
+
+  async function copyJob() {
+    await navigator.clipboard.writeText(applicationToClipboardText(app));
+    setCopied(true);
+  }
 
   function updateAnswer(index: number, field: "question" | "answer", value: string) {
     onUpdate({
@@ -905,12 +1017,26 @@ function TrackedJob({
             </select>
           </div>
           <span><Building2 size={12} /> {app.company || "Company"}</span>
+          {app.upwork && <span className="upworkBadge">Upwork · {app.upwork.status}</span>}
         </div>
         <div className="trackedJobActions">
-          {app.jobUrl && (
+          <button
+            className={copied ? "jobLink copied" : "jobLink"}
+            type="button"
+            title={copied ? "Job details copied" : "Copy all job details"}
+            aria-label={copied ? "Job details copied" : `Copy all details for ${app.role || "tracked job"}`}
+            onClick={() => void copyJob()}
+          >
+            {copied ? <Check size={14} /> : <ClipboardCopy size={14} />}
+          </button>
+          {app.jobUrl ? (
             <a className="jobLink" href={app.jobUrl} target="_blank" rel="noreferrer" title="Open job">
               <ExternalLink size={14} />
             </a>
+          ) : (
+            <button className="jobLink" type="button" title="Add a job URL to open the listing" aria-label="No job URL saved" disabled>
+              <ExternalLink size={14} />
+            </button>
           )}
           <button className="jobLink danger" type="button" title="Delete job" onClick={onDelete}>
             <Trash2 size={14} />
@@ -932,6 +1058,31 @@ function TrackedJob({
               onChange={(event) => onUpdate({ nextActionDate: event.target.value })}
             />
           </div>
+          {app.upwork && (
+            <div className="upworkEditor">
+              <strong>Upwork proposal</strong>
+              <select
+                value={app.upwork.status}
+                onChange={(event) => onUpdate(changeUpworkStatus(app, event.target.value as UpworkProposalStatus))}
+              >
+                {UPWORK_PROPOSAL_STATUSES.map((proposalStatus) => <option key={proposalStatus}>{proposalStatus}</option>)}
+              </select>
+              <input
+                type="number"
+                min="0"
+                placeholder="Base Connects"
+                value={app.upwork.baseConnects ?? ""}
+                onChange={(event) => onUpdate({ upwork: { ...app.upwork!, baseConnects: nullableNumber(event.target.value) } })}
+              />
+              <input
+                type="number"
+                min="0"
+                placeholder="Boost charged"
+                value={app.upwork.boostCharged ?? ""}
+                onChange={(event) => onUpdate({ upwork: { ...app.upwork!, boostCharged: nullableNumber(event.target.value) } })}
+              />
+            </div>
+          )}
           <textarea
             rows={2}
             placeholder="Notes"

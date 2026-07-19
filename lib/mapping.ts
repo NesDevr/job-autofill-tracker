@@ -1,5 +1,6 @@
 import Fuse from "fuse.js";
 import { db } from "./db";
+import { createDemoMemories } from "./demo";
 import { formatProfilePhone } from "./profileValues";
 import { SYNONYMS } from "./synonyms";
 import type { AnswerMemory, CanonicalField, FieldDescriptor, FieldFill, Profile } from "./schema";
@@ -34,8 +35,8 @@ export function deterministicValue(field: FieldDescriptor, profile: Profile): Fi
   return { id: field.id, value, source: "profile", confidence: 0.94 };
 }
 
-export async function memoryValue(field: FieldDescriptor): Promise<FieldFill | undefined> {
-  const memories = await db.answerMemory.toArray();
+export async function memoryValue(field: FieldDescriptor, demoMode: boolean): Promise<FieldFill | undefined> {
+  const memories = demoMode ? createDemoMemories() : await db.answerMemory.toArray();
   if (memories.length === 0) return undefined;
 
   const fuse = new Fuse(memories, {
@@ -47,7 +48,7 @@ export async function memoryValue(field: FieldDescriptor): Promise<FieldFill | u
   const match = exact ?? fuse.search(field.question)[0]?.item;
   if (!match || answerHasPlaceholder(match.answer)) return undefined;
 
-  await db.answerMemory.update(match.id!, { lastUsed: new Date().toISOString() });
+  if (!demoMode) await db.answerMemory.update(match.id!, { lastUsed: new Date().toISOString() });
   return { id: field.id, value: match.answer, source: "memory", confidence: exact ? 1 : 0.82 };
 }
 
@@ -55,7 +56,8 @@ export function answerHasPlaceholder(value: string): boolean {
   return /\[\s*todo\b|\btodo\s*:/i.test(value);
 }
 
-export async function rememberAnswer(questionText: string, answer: string): Promise<void> {
+export async function rememberAnswer(questionText: string, answer: string, demoMode: boolean): Promise<void> {
+  if (demoMode) return;
   const questionHashValue = questionHash(questionText);
   const existing = await db.answerMemory.where("questionHash").equals(questionHashValue).first();
   const payload: AnswerMemory = {

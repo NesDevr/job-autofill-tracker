@@ -1,4 +1,5 @@
 import { DEFAULT_SETTINGS, EMPTY_PROFILE, type DashboardLaunch, type PendingApplication, type Profile, type Settings, type SidebarLaunch } from "./schema";
+import { DEMO_PROFILE } from "./demo";
 
 const PROFILE_KEY = "profile";
 const SETTINGS_KEY = "settings";
@@ -7,7 +8,9 @@ const DASHBOARD_LAUNCH_KEY = "dashboardLaunch";
 const SIDEBAR_LAUNCH_KEY = "sidebarLaunch";
 
 export async function getProfile(): Promise<Profile> {
-  const result = await chrome.storage.local.get(PROFILE_KEY);
+  const result = await chrome.storage.local.get([PROFILE_KEY, SETTINGS_KEY]);
+  const storedSettings = result[SETTINGS_KEY] as Partial<Settings> | undefined;
+  if (storedSettings?.demoMode) return structuredClone(DEMO_PROFILE);
   const stored = result[PROFILE_KEY] as Partial<Profile> | undefined;
   return {
     ...EMPTY_PROFILE,
@@ -44,6 +47,8 @@ export async function getProfile(): Promise<Profile> {
 }
 
 export async function saveProfile(profile: Profile): Promise<void> {
+  const settings = await getSettings();
+  if (settings.demoMode) throw new Error("Profile changes cannot be saved while demo mode is active.");
   await chrome.storage.local.set({ [PROFILE_KEY]: profile });
 }
 
@@ -70,12 +75,14 @@ export async function getPendingApplications(): Promise<PendingApplication[]> {
 }
 
 export async function queuePendingApplication(pending: PendingApplication): Promise<void> {
+  if ((await getSettings()).demoMode) return;
   const pendingApplications = await getPendingApplications();
   if (pendingApplications.some((item) => item.id === pending.id)) return;
   await chrome.storage.local.set({ [PENDING_APPLICATIONS_KEY]: [pending, ...pendingApplications] });
 }
 
 export async function removePendingApplication(id: string): Promise<void> {
+  if ((await getSettings()).demoMode) return;
   const pendingApplications = await getPendingApplications();
   await chrome.storage.local.set({
     [PENDING_APPLICATIONS_KEY]: pendingApplications.filter((item) => item.id !== id)

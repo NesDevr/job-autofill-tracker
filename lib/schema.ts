@@ -119,6 +119,30 @@ export type Compensation = {
   period: CompensationPeriod;
 };
 
+export type UpworkProposalStatus =
+  | "Submitted"
+  | "Responded"
+  | "Interview"
+  | "Offered"
+  | "Hired"
+  | "Declined"
+  | "Withdrawn"
+  | "Archived";
+
+export type UpworkProposalDetails = {
+  status: UpworkProposalStatus;
+  contractType: "hourly" | "fixed" | "";
+  proposedAmount?: number | null;
+  currency: CompensationCurrency;
+  baseConnects?: number | null;
+  boostBid?: number | null;
+  boostCharged?: number | null;
+  respondedAt?: string;
+  interviewedAt?: string;
+  offeredAt?: string;
+  hiredAt?: string;
+};
+
 export type ThemeMode = "light" | "dark";
 
 export type Application = {
@@ -137,6 +161,7 @@ export type Application = {
   answersUsed: Array<{ question: string; answer: string }>;
   notes: string;
   nextActionDate?: string;
+  upwork?: UpworkProposalDetails;
 };
 
 export type PendingApplication = {
@@ -231,7 +256,7 @@ export type Profile = {
 };
 
 export type Settings = {
-  aiEnabled: boolean;
+  demoMode: boolean;
   provider: "openai";
   apiKey: string;
   model: string;
@@ -361,7 +386,7 @@ export const EMPTY_PROFILE: Profile = {
 };
 
 export const DEFAULT_SETTINGS: Settings = {
-  aiEnabled: false,
+  demoMode: false,
   provider: "openai",
   apiKey: "",
   model: "gpt-5.4-mini",

@@ -13,7 +13,8 @@ export default defineContentScript({
     "https://*.ashbyhq.com/*",
     "https://*.linkedin.com/jobs/*",
     "https://*.indeed.com/*",
-    "https://*.comeet.co/*"
+    "https://*.comeet.co/*",
+    "https://*.upwork.com/*"
   ],
   allFrames: true,
   runAt: "document_idle",
@@ -51,6 +52,7 @@ function isAllowedJobPage(): boolean {
     host.endsWith("lever.co") ||
     host.includes("ashbyhq.com") ||
     host.includes("comeet.co") ||
+    host.endsWith("upwork.com") ||
     (host.endsWith("linkedin.com") && path.includes("/jobs")) ||
     (host.endsWith("indeed.com") && /job|viewjob|apply/.test(path)) ||
     hasApplicationSurface()
@@ -693,10 +695,40 @@ function getPageContext(): PageContext {
 }
 
 function getVendorPageContext(): PageContext | undefined {
+  if (location.hostname.includes("upwork.com")) return getUpworkPageContext();
   if (location.hostname.includes("comeet.co")) return getComeetPageContext();
   if (location.hostname.includes("linkedin.com")) return getLinkedInPageContext();
   if (location.hostname.includes("indeed.com")) return getIndeedPageContext();
   return undefined;
+}
+
+function getUpworkPageContext(): PageContext {
+  const title = cleanTitle(document.title);
+  const role = firstUseful([
+    findTextBySelectors([
+      "[data-test='job-title']",
+      "[data-test='job-details-title']",
+      "[data-qa='job-title']",
+      "h1",
+      "h2"
+    ]),
+    extractRoleFromTitle(title)
+  ]);
+  const company = firstUseful([
+    findTextBySelectors([
+      "[data-test='client-company-name']",
+      "[data-qa='client-company-name']",
+      "[data-test='client-name']"
+    ])
+  ]);
+
+  return {
+    url: location.href,
+    title,
+    source: "Upwork",
+    company: company || "Private Upwork client",
+    role: role || title || "Upwork project"
+  };
 }
 
 function getComeetPageContext(): PageContext {
@@ -856,7 +888,8 @@ function queueTrackCurrentApplication(): PendingApplication {
     answersUsed: extractFields()
       .filter((field) => field.value)
       .map((field) => ({ question: field.question, answer: String(field.value ?? "") })),
-    notes: ""
+    notes: "",
+    upwork: context.source === "Upwork" ? extractUpworkProposalDetails() : undefined
   };
 
   const pending: PendingApplication = {
@@ -886,6 +919,7 @@ function canonicalJobUrl(url: string): string {
 }
 
 function detectSource(hostname: string): string {
+  if (hostname.includes("upwork")) return "Upwork";
   if (hostname.includes("comeet")) return "Comeet";
   if (hostname.includes("greenhouse")) return "Greenhouse";
   if (hostname.includes("lever")) return "Lever";
@@ -893,6 +927,42 @@ function detectSource(hostname: string): string {
   if (hostname.includes("linkedin")) return "LinkedIn";
   if (hostname.includes("indeed")) return "Indeed";
   return "Web";
+}
+
+function extractUpworkProposalDetails(): NonNullable<Application["upwork"]> {
+  const pageText = cleanTitle(document.body?.innerText ?? "");
+  const fields = extractFields();
+  const bidField = fields.find((field) => /hourly rate|your bid|bid amount|total price/i.test(field.question));
+  const boostField = fields.find((field) => /boost.*connect|connect.*boost/i.test(field.question));
+  const proposedAmount = numberFromText(String(bidField?.value ?? ""));
+  const boostBid = integerFromText(String(boostField?.value ?? ""));
+  const connectsMatch = pageText.match(/(?:requires?|costs?|use(?:s|d)?|send for)\s+(\d+)\s+connects?/i)
+    ?? pageText.match(/(\d+)\s+connects?\s+(?:required|to submit|for this proposal)/i);
+  const contractType = /fixed[- ]price/i.test(pageText)
+    ? "fixed"
+    : /hourly|\/\s*hr|per hour/i.test(pageText)
+      ? "hourly"
+      : "";
+
+  return {
+    status: "Submitted",
+    contractType,
+    proposedAmount,
+    currency: /(?:US\$|USD|\$)/i.test(String(bidField?.value ?? "") + pageText) ? "USD" : "",
+    baseConnects: connectsMatch ? Number(connectsMatch[1]) : null,
+    boostBid,
+    boostCharged: null
+  };
+}
+
+function numberFromText(value: string): number | null {
+  const match = value.replaceAll(",", "").match(/\d+(?:\.\d+)?/);
+  return match ? Number(match[0]) : null;
+}
+
+function integerFromText(value: string): number | null {
+  const number = numberFromText(value);
+  return number == null ? null : Math.round(number);
 }
 
 function guessCompany(title: string, headings: Array<string | undefined>): string {

@@ -51,6 +51,31 @@ textarea {
   justify-content: space-between;
 }
 
+.demoBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid #b87918;
+  border-radius: 999px;
+  background: #fff1c9;
+  color: #71480c;
+  padding: 5px 9px;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.demoModeButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  justify-self: start;
+  cursor: pointer;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
 .eyebrow {
   margin: 0 0 3px;
   color: #51606d;
@@ -85,7 +110,8 @@ h3 {
 .iconButton,
 .tab,
 .toolbar button,
-.importCv {
+.importCv,
+.demoModeButton {
   border: 1px solid #1f2a33;
   border-radius: 7px;
   background: #fffaf2;
@@ -173,6 +199,10 @@ h3 {
 .panel {
   display: grid;
   gap: 12px;
+}
+
+.tabs + .panel {
+  margin-top: 14px;
 }
 
 .profileSection {
@@ -1036,6 +1066,11 @@ textarea:focus {
   background: rgba(22, 31, 45, 0.94);
 }
 
+:root[data-theme="dark"] .demoBadge {
+  background: #513913;
+  color: #ffd98b;
+}
+
 :root[data-theme="dark"] .profileSectionHeading p {
   color: #c3ceda;
 }
@@ -1086,6 +1121,7 @@ textarea:focus {
 :root[data-theme="dark"] .iconButton,
 :root[data-theme="dark"] .tab,
 :root[data-theme="dark"] .toolbar button,
+:root[data-theme="dark"] .demoModeButton,
 :root[data-theme="dark"] .rowIconButton,
 :root[data-theme="dark"] .pendingActions button,
 :root[data-theme="dark"] .answerActions button,
@@ -1170,4 +1206,96 @@ textarea:focus {
   border-color: #7f1d1d;
   background: #3f1518;
   color: #fecdd3;
+}
+
+.upworkSummary {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(112px, 1fr));
+  gap: 1px;
+  margin: 14px 0;
+  overflow: hidden;
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  background: #cbd5e1;
+}
+
+.upworkSummary > div {
+  display: grid;
+  gap: 4px;
+  min-height: 64px;
+  padding: 12px 14px;
+  background: #f8fafc;
+}
+
+.upworkSummary span {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.upworkSummary strong {
+  color: #0f172a;
+  font-size: 17px;
+}
+
+.upworkBadge {
+  width: fit-content;
+  color: #0f766e;
+  font-weight: 750;
+}
+
+.appDetails .upworkEditor {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 2px 0;
+  padding: 12px;
+  border: 1px solid #99f6e4;
+  border-radius: 10px;
+  background: #f0fdfa;
+}
+
+.upworkEditor legend {
+  padding: 0 6px;
+  color: #0f766e;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+:root[data-theme="dark"] .upworkSummary {
+  border-color: #334155;
+  background: #334155;
+}
+
+:root[data-theme="dark"] .upworkSummary > div,
+:root[data-theme="dark"] .appDetails .upworkEditor {
+  background: #111827;
+}
+
+:root[data-theme="dark"] .upworkSummary span {
+  color: #94a3b8;
+}
+
+:root[data-theme="dark"] .upworkSummary strong {
+  color: #f8fafc;
+}
+
+:root[data-theme="dark"] .appDetails .upworkEditor {
+  border-color: #2f766d;
+}
+
+:root[data-theme="dark"] .upworkBadge,
+:root[data-theme="dark"] .upworkEditor legend {
+  color: #5eead4;
+}
+
+@media (max-width: 900px) {
+  .upworkSummary {
+    grid-template-columns: repeat(3, 1fr);
+  }
 }

@@ -1,4 +1,3 @@
-import { draftAnswers } from "../lib/ai";
 import { db } from "../lib/db";
 import { deterministicValue, memoryValue } from "../lib/mapping";
 import { getProfile, getSettings, queuePendingApplication, removePendingApplication, setSidebarLaunch } from "../lib/storage";
@@ -22,6 +21,7 @@ export default defineBackground({
 
 async function handleMessage(message: ExtensionMessage, sender: chrome.runtime.MessageSender): Promise<unknown> {
   if (message.kind === "LOG_APPLICATION") {
+    if ((await getSettings()).demoMode) return { ok: true };
     await db.applications.add(message.application);
     return { ok: true };
   }
@@ -53,11 +53,8 @@ async function handleMessage(message: ExtensionMessage, sender: chrome.runtime.M
     return { ok: false, error: "Tracking must be sent to a page tab." };
   }
 
-  const profile = await getProfile();
-  const settings = await getSettings();
+  const [profile, settings] = await Promise.all([getProfile(), getSettings()]);
   const fills: FieldFill[] = [];
-  const remaining = [];
-
   for (const field of message.fields) {
     const deterministic = deterministicValue(field, profile);
     if (deterministic) {
@@ -65,17 +62,11 @@ async function handleMessage(message: ExtensionMessage, sender: chrome.runtime.M
       continue;
     }
 
-    const memory = await memoryValue(field);
+    const memory = await memoryValue(field, settings.demoMode);
     if (memory) {
       fills.push(memory);
       continue;
     }
-
-    if (field.type === "textarea" || (field.type === "text" && field.question.length > 40)) {
-      remaining.push(field);
-    }
   }
-
-  fills.push(...(await draftAnswers(remaining, profile, settings, message.jobDescription)));
   return { ok: true, fills };
 }

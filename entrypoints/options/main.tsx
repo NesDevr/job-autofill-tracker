@@ -4,11 +4,13 @@ import { BriefcaseBusiness, Building2, CalendarClock, ChevronDown, ChevronRight,
 import { draftApplicationFromJobPosting, draftSingleAnswer, enrichProfileFromText, importProfileFromCv } from "../../lib/ai";
 import { normalizeCompensationCurrency } from "../../lib/compensation";
 import { db } from "../../lib/db";
+import { createDemoApplications, createDemoMemories } from "../../lib/demo";
 import { questionHash } from "../../lib/mapping";
 import { formatExperience, formatProjects, formatSkills, parseExperience, parseProjects, parseSkills } from "../../lib/profileText";
-import { EMPTY_PROFILE, type AnswerMemory, type Application, type ApplicationStatus, type CompensationCurrency, type CompensationPeriod, type PendingApplication, type Profile, type Settings, type ThemeMode } from "../../lib/schema";
+import { EMPTY_PROFILE, type AnswerMemory, type Application, type ApplicationStatus, type CompensationCurrency, type CompensationPeriod, type PendingApplication, type Profile, type Settings, type ThemeMode, type UpworkProposalStatus } from "../../lib/schema";
 import { clearDashboardLaunch, getDashboardLaunch, getPendingApplications, getProfile, getSettings, removePendingApplication, saveProfile, saveSettings } from "../../lib/storage";
 import { applyTheme } from "../../lib/theme";
+import { changeUpworkStatus, UPWORK_PROPOSAL_STATUSES, upworkRate, upworkSummary } from "../../lib/upwork";
 import "./styles.css";
 
 const statuses: ApplicationStatus[] = ["Saved", "Applied", "Screen", "Interview", "Offer", "Rejected", "Ghosted"];
@@ -47,6 +49,11 @@ function App() {
       return;
     }
 
+    if (settings?.demoMode) {
+      setProfileSaveStatus("Demo changes are temporary");
+      return;
+    }
+
     window.clearTimeout(profileSaveTimer.current);
     setProfileSaveStatus("Saving...");
     profileSaveTimer.current = window.setTimeout(() => {
@@ -56,7 +63,7 @@ function App() {
     }, 550);
 
     return () => window.clearTimeout(profileSaveTimer.current);
-  }, [profile]);
+  }, [profile, settings?.demoMode]);
 
   async function loadInitialState() {
     await refresh();
@@ -77,19 +84,29 @@ function App() {
     setProfile(await getProfile());
     setSettings(nextSettings);
     applyTheme(nextSettings.theme);
-    setApplications(await db.applications.orderBy("dateApplied").reverse().toArray());
-    setPendingApplications(await getPendingApplications());
-    setMemories(await db.answerMemory.orderBy("lastUsed").reverse().toArray());
+    if (nextSettings.demoMode) {
+      setApplications(createDemoApplications());
+      setPendingApplications([]);
+      setMemories(createDemoMemories());
+      setProfileSaveStatus("Demo changes are temporary");
+    } else {
+      setApplications(await db.applications.orderBy("dateApplied").reverse().toArray());
+      setPendingApplications(await getPendingApplications());
+      setMemories(await db.answerMemory.orderBy("lastUsed").reverse().toArray());
+    }
   }
 
   async function persistSettings(next: Settings) {
+    const demoModeChanged = next.demoMode !== settings?.demoMode;
     setSettings(next);
     applyTheme(next.theme);
     await saveSettings(next);
+    if (demoModeChanged) await refresh();
   }
 
   async function importCv(file: File) {
     try {
+      if (settings?.demoMode) throw new Error("Turn off demo mode before importing a CV.");
       if (!settings?.apiKey) throw new Error("Add your OpenAI API key in Settings first.");
       setImportStatus("Reading CV...");
       const fileDataUrl = await readFileDataUrl(file);
@@ -123,6 +140,7 @@ function App() {
           <p className="eyebrow">Local-first job ops</p>
           <h1>Autofill desk</h1>
         </div>
+        {settings?.demoMode && <span className="demoBadge"><Sparkles size={13} /> Demo mode</span>}
       </header>
 
       <section className="metrics">
@@ -152,11 +170,13 @@ function App() {
           applications={applications}
           pendingApplications={pendingApplications}
           refresh={refresh}
+          demoMode={Boolean(settings?.demoMode)}
+          setApplications={setApplications}
           launchPendingId={launchPendingId}
           onLaunchConsumed={() => setLaunchPendingId(undefined)}
         />
       )}
-      {tab === "memory" && <MemoryPanel memories={memories} refresh={refresh} />}
+      {tab === "memory" && <MemoryPanel memories={memories} refresh={refresh} demoMode={Boolean(settings?.demoMode)} setMemories={setMemories} />}
       {tab === "settings" && settings && <SettingsPanel settings={settings} save={persistSettings} />}
     </main>
   );
@@ -422,12 +442,16 @@ function TrackerPanel({
   applications,
   pendingApplications,
   refresh,
+  demoMode,
+  setApplications,
   launchPendingId,
   onLaunchConsumed
 }: {
   applications: Application[];
   pendingApplications: PendingApplication[];
   refresh: () => Promise<void>;
+  demoMode: boolean;
+  setApplications: React.Dispatch<React.SetStateAction<Application[]>>;
   launchPendingId?: string;
   onLaunchConsumed: () => void;
 }) {
@@ -453,6 +477,7 @@ function TrackerPanel({
   const [activePendingId, setActivePendingId] = useState<string | null>(null);
   const filtered = applications.filter((app) => `${app.company} ${app.role} ${app.status} ${app.source}`.toLowerCase().includes(query.toLowerCase()));
   const visibleFiltered = filtered.filter((app) => visibleStatuses.includes(app.status));
+  const upworkStats = upworkSummary(applications);
 
   useEffect(() => {
     if (!launchPendingId) return;
@@ -471,9 +496,13 @@ function TrackerPanel({
   }
 
   async function moveApplication(id: number, status: ApplicationStatus) {
-    await db.applications.update(id, { status });
+    if (demoMode) {
+      setApplications((current) => current.map((app) => app.id === id ? { ...app, status } : app));
+    } else {
+      await db.applications.update(id, { status });
+      await refresh();
+    }
     setDraggedId(null);
-    await refresh();
   }
 
   async function addManual() {
@@ -482,7 +511,8 @@ function TrackerPanel({
       return;
     }
 
-    await db.applications.add({
+    const application: Application = {
+      id: demoMode ? Math.max(0, ...applications.map((app) => app.id ?? 0)) + 1 : undefined,
       company: manualDraft.company.trim(),
       role: manualDraft.role.trim(),
       jobUrl: manualDraft.jobUrl.trim(),
@@ -494,8 +524,19 @@ function TrackerPanel({
       compensation: compensationFromDraft(manualDraft),
       jobDescription: "",
       answersUsed: [],
-      notes: ""
-    });
+      notes: "",
+      upwork: manualDraft.source.trim().toLowerCase() === "upwork" ? {
+        status: "Submitted",
+        contractType: manualDraft.compensationPeriod === "hour" ? "hourly" : manualDraft.compensationPeriod === "one-time" ? "fixed" : "",
+        proposedAmount: numberOrUndefined(manualDraft.compensationMin) ?? null,
+        currency: manualDraft.compensationCurrency,
+        baseConnects: null,
+        boostBid: null,
+        boostCharged: null
+      } : undefined
+    };
+    if (demoMode) setApplications((current) => [application, ...current]);
+    else await db.applications.add(application);
     setManualDraft({
       company: "",
       role: "",
@@ -510,11 +551,11 @@ function TrackerPanel({
     });
     setManualOpen(false);
     setParseStatus("");
-    await refresh();
+    if (!demoMode) await refresh();
   }
 
   function exportCsv() {
-    const rows = [["company", "role", "status", "source", "dateApplied", "nextActionDate", "location", "workMode", "compensation", "compensationCurrency", "compensationMin", "compensationMax", "compensationPeriod", "jobUrl", "jobDescription", "notes"]];
+    const rows = [["company", "role", "status", "source", "dateApplied", "nextActionDate", "location", "workMode", "compensation", "compensationCurrency", "compensationMin", "compensationMax", "compensationPeriod", "jobUrl", "jobDescription", "notes", "upworkStatus", "upworkContractType", "upworkProposedAmount", "upworkCurrency", "upworkBaseConnects", "upworkBoostBid", "upworkBoostCharged", "upworkRespondedAt", "upworkInterviewedAt", "upworkOfferedAt", "upworkHiredAt"]];
     for (const app of applications) rows.push([
       app.company,
       app.role,
@@ -531,7 +572,18 @@ function TrackerPanel({
       app.compensation?.period ?? "",
       app.jobUrl,
       app.jobDescription ?? "",
-      app.notes
+      app.notes,
+      app.upwork?.status ?? "",
+      app.upwork?.contractType ?? "",
+      app.upwork?.proposedAmount == null ? "" : String(app.upwork.proposedAmount),
+      app.upwork?.currency ?? "",
+      app.upwork?.baseConnects == null ? "" : String(app.upwork.baseConnects),
+      app.upwork?.boostBid == null ? "" : String(app.upwork.boostBid),
+      app.upwork?.boostCharged == null ? "" : String(app.upwork.boostCharged),
+      app.upwork?.respondedAt ?? "",
+      app.upwork?.interviewedAt ?? "",
+      app.upwork?.offeredAt ?? "",
+      app.upwork?.hiredAt ?? ""
     ]);
     const csv = rows.map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(",")).join("\n");
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
@@ -557,7 +609,8 @@ function TrackerPanel({
       const settings = await getSettings();
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       const draft = await draftApplicationFromJobPosting(postingText, settings, tab?.url ?? "");
-      await db.applications.add({
+      const application: Application = {
+        id: demoMode ? Math.max(0, ...applications.map((app) => app.id ?? 0)) + 1 : undefined,
         company: draft.company,
         role: draft.role,
         jobUrl: draft.jobUrl || tab?.url || "",
@@ -568,9 +621,12 @@ function TrackerPanel({
         workMode: draft.workMode,
         compensation: draft.compensation,
         jobDescription: draft.jobDescription,
+        upwork: draft.upwork,
         answersUsed: [],
         notes: ""
-      });
+      };
+      if (demoMode) setApplications((current) => [application, ...current]);
+      else await db.applications.add(application);
       if (activePendingId) {
         await removePendingApplication(activePendingId);
         setActivePendingId(null);
@@ -578,7 +634,7 @@ function TrackerPanel({
       setPostingText("");
       setPasteOpen(false);
       setParseStatus("");
-      await refresh();
+      if (!demoMode) await refresh();
     } catch (error) {
       setParseStatus(error instanceof Error ? error.message : String(error));
     }
@@ -595,6 +651,16 @@ function TrackerPanel({
         <button onClick={() => setPasteOpen(!pasteOpen)}>Paste</button>
         <button className="iconButton" title="Export CSV" onClick={exportCsv}><Download size={16} /></button>
       </div>
+      {upworkStats.count > 0 && (
+        <section className="upworkSummary" aria-label="Upwork proposal performance">
+          <div><span>Upwork proposals</span><strong>{upworkStats.count}</strong></div>
+          <div><span>Connects spent</span><strong>{upworkStats.actualConnects}</strong></div>
+          <div><span>Responses</span><strong>{upworkStats.responses} · {upworkRate(upworkStats.responses, upworkStats.count)}</strong></div>
+          <div><span>Interviews</span><strong>{upworkStats.interviews} · {upworkRate(upworkStats.interviews, upworkStats.count)}</strong></div>
+          <div><span>Offers</span><strong>{upworkStats.offers}</strong></div>
+          <div><span>Hires</span><strong>{upworkStats.hires}</strong></div>
+        </section>
+      )}
       {manualOpen && (
         <section className="manualJobPanel">
           <div className="grid two">
@@ -631,7 +697,7 @@ function TrackerPanel({
       {pasteOpen && (
         <section className="pasteJobPanel">
           <label>
-            <span>Paste job posting</span>
+            <span>Paste job posting or Upwork proposal</span>
             <textarea rows={8} value={postingText} onChange={(event) => setPostingText(event.target.value)} />
           </label>
           <div className="pasteActions">
@@ -705,7 +771,14 @@ function TrackerPanel({
                 {columnApplications.map((app) => (
                   <ApplicationRow
                     app={app}
-                    refresh={refresh}
+                    onUpdate={(patch) => {
+                      if (demoMode) setApplications((current) => current.map((item) => item.id === app.id ? { ...item, ...patch } : item));
+                      else void db.applications.update(app.id!, patch).then(refresh);
+                    }}
+                    onDelete={() => {
+                      if (demoMode) setApplications((current) => current.filter((item) => item.id !== app.id));
+                      else void db.applications.delete(app.id!).then(refresh);
+                    }}
                     variant="card"
                     key={app.id}
                     onDragStart={() => setDraggedId(app.id ?? null)}
@@ -725,13 +798,15 @@ function TrackerPanel({
 
 function ApplicationRow({
   app,
-  refresh,
+  onUpdate,
+  onDelete,
   variant = "list",
   onDragStart,
   onDragEnd
 }: {
   app: Application;
-  refresh: () => Promise<void>;
+  onUpdate: (patch: Partial<Application>) => void;
+  onDelete: () => void;
   variant?: "list" | "card";
   onDragStart?: () => void;
   onDragEnd?: () => void;
@@ -739,14 +814,12 @@ function ApplicationRow({
   const [expanded, setExpanded] = useState(false);
 
   async function update(patch: Partial<Application>) {
-    await db.applications.update(app.id!, patch);
-    await refresh();
+    onUpdate(patch);
   }
 
   async function remove() {
     if (!app.id) return;
-    await db.applications.delete(app.id);
-    await refresh();
+    onDelete();
   }
 
   return (
@@ -763,6 +836,7 @@ function ApplicationRow({
         <div>
           <strong>{app.role || "Role"}</strong>
           <p><Building2 size={12} /> {app.company || "Company"}</p>
+          {app.upwork && <small className="upworkBadge">Upwork · {app.upwork.status}</small>}
           {variant === "list" && <small>{app.status} | {dateInputValue(app.dateApplied)} | {app.source}</small>}
           {app.compensation?.text && <small>{app.compensation.text}</small>}
           {(app.location || app.workMode) && <small className="cardMeta"><MapPin size={11} /> {[app.location, app.workMode].filter(Boolean).join(" · ")}</small>}
@@ -807,6 +881,29 @@ function ApplicationRow({
               <option value="On-site">On-site</option>
             </select>
           </label>
+          {app.upwork && (
+            <fieldset className="upworkEditor">
+              <legend>Upwork proposal</legend>
+              <label>
+                <span>Proposal status</span>
+                <select value={app.upwork.status} onChange={(event) => void update(changeUpworkStatus(app, event.target.value as UpworkProposalStatus))}>
+                  {UPWORK_PROPOSAL_STATUSES.map((proposalStatus) => <option key={proposalStatus}>{proposalStatus}</option>)}
+                </select>
+              </label>
+              <label>
+                <span>Contract type</span>
+                <select value={app.upwork.contractType} onChange={(event) => void update({ upwork: { ...app.upwork!, contractType: event.target.value as "hourly" | "fixed" | "" } })}>
+                  <option value="">Unknown</option>
+                  <option value="hourly">Hourly</option>
+                  <option value="fixed">Fixed-price</option>
+                </select>
+              </label>
+              <label><span>Proposed amount</span><input type="number" min="0" value={app.upwork.proposedAmount ?? ""} onChange={(event) => void update({ upwork: { ...app.upwork!, proposedAmount: numberOrNull(event.target.value) } })} /></label>
+              <label><span>Base Connects</span><input type="number" min="0" value={app.upwork.baseConnects ?? ""} onChange={(event) => void update({ upwork: { ...app.upwork!, baseConnects: numberOrNull(event.target.value) } })} /></label>
+              <label><span>Boost bid</span><input type="number" min="0" value={app.upwork.boostBid ?? ""} onChange={(event) => void update({ upwork: { ...app.upwork!, boostBid: numberOrNull(event.target.value) } })} /></label>
+              <label><span>Boost charged</span><input type="number" min="0" value={app.upwork.boostCharged ?? ""} onChange={(event) => void update({ upwork: { ...app.upwork!, boostCharged: numberOrNull(event.target.value) } })} /></label>
+            </fieldset>
+          )}
           <label>
             <span>Compensation</span>
             <input value={app.compensation?.text ?? ""} onChange={(event) => void update({ compensation: { ...(app.compensation ?? emptyCompensation()), text: event.target.value } })} />
@@ -894,6 +991,12 @@ function applicationToPasteText(application: Application): string {
     application.location ? `Location: ${application.location}` : "",
     application.workMode ? `Work mode: ${application.workMode}` : "",
     application.compensation?.text ? `Compensation: ${application.compensation.text}` : "",
+    application.upwork ? `Upwork proposal status: ${application.upwork.status}` : "",
+    application.upwork?.contractType ? `Upwork contract type: ${application.upwork.contractType}` : "",
+    application.upwork?.proposedAmount != null ? `Proposed amount: ${application.upwork.proposedAmount} ${application.upwork.currency}` : "",
+    application.upwork?.baseConnects != null ? `Base Connects: ${application.upwork.baseConnects}` : "",
+    application.upwork?.boostBid != null ? `Boost bid: ${application.upwork.boostBid} Connects` : "",
+    application.upwork?.boostCharged != null ? `Boost charged: ${application.upwork.boostCharged} Connects` : "",
     application.jobDescription ? `Job description:\n${application.jobDescription}` : "",
     application.answersUsed.length > 0
       ? `Application answers:\n${application.answersUsed.map((item) => `${item.question}: ${item.answer}`).join("\n")}`
@@ -908,6 +1011,13 @@ function numberOrUndefined(value: string): number | undefined {
   return parsed;
 }
 
+function numberOrNull(value: string): number | null {
+  if (!value.trim()) return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) throw new Error(`Invalid non-negative number: ${value}`);
+  return parsed;
+}
+
 function dateToIso(value: string): string {
   if (!value) return new Date().toISOString();
   return new Date(`${value}T12:00:00`).toISOString();
@@ -917,7 +1027,7 @@ function todayInputDate(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-function MemoryPanel({ memories, refresh }: { memories: AnswerMemory[]; refresh: () => Promise<void> }) {
+function MemoryPanel({ memories, refresh, demoMode, setMemories }: { memories: AnswerMemory[]; refresh: () => Promise<void>; demoMode: boolean; setMemories: React.Dispatch<React.SetStateAction<AnswerMemory[]>> }) {
   const emptyDraft = { questionText: "", answer: "" };
   const [draft, setDraft] = useState(emptyDraft);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -934,7 +1044,7 @@ function MemoryPanel({ memories, refresh }: { memories: AnswerMemory[]; refresh:
     }
 
     const hash = questionHash(questionText);
-    const existing = await db.answerMemory.where("questionHash").equals(hash).first();
+    const existing = demoMode ? memories.find((memory) => memory.questionHash === hash) : await db.answerMemory.where("questionHash").equals(hash).first();
     const payload: AnswerMemory = {
       questionHash: hash,
       questionText,
@@ -943,7 +1053,13 @@ function MemoryPanel({ memories, refresh }: { memories: AnswerMemory[]; refresh:
       editable: true
     };
 
-    if (existing?.id) {
+    if (demoMode) {
+      const next = { ...payload, id: existing?.id ?? Math.max(0, ...memories.map((memory) => memory.id ?? 0)) + 1 };
+      setMemories((current) => existing?.id
+        ? current.map((memory) => memory.id === existing.id ? next : memory)
+        : [next, ...current]);
+      setStatus(existing ? "Existing demo answer updated." : "Demo answer added.");
+    } else if (existing?.id) {
       await db.answerMemory.update(existing.id, payload);
       setStatus("Existing answer updated.");
     } else {
@@ -951,7 +1067,7 @@ function MemoryPanel({ memories, refresh }: { memories: AnswerMemory[]; refresh:
       setStatus("Answer added.");
     }
     setDraft(emptyDraft);
-    await refresh();
+    if (!demoMode) await refresh();
   }
 
   async function addWithAi() {
@@ -966,9 +1082,12 @@ function MemoryPanel({ memories, refresh }: { memories: AnswerMemory[]; refresh:
     try {
       const [profile, settings] = await Promise.all([getProfile(), getSettings()]);
       const answer = await draftSingleAnswer(questionText, profile, settings);
+      if (demoMode) {
+        setMemories((current) => [{ id: Math.max(0, ...current.map((memory) => memory.id ?? 0)) + 1, questionHash: questionHash(questionText), questionText, answer, lastUsed: new Date().toISOString(), editable: true }, ...current]);
+      }
       setDraft({ questionText: "", answer: "" });
       setStatus(`AI answer added: ${answer.slice(0, 70)}${answer.length > 70 ? "..." : ""}`);
-      await refresh();
+      if (!demoMode) await refresh();
     } catch (error) {
       setStatus(error instanceof Error ? error.message : String(error));
     } finally {
@@ -992,29 +1111,27 @@ function MemoryPanel({ memories, refresh }: { memories: AnswerMemory[]; refresh:
       return;
     }
     const hash = questionHash(questionText);
-    const existing = await db.answerMemory.where("questionHash").equals(hash).first();
+    const existing = demoMode ? memories.find((item) => item.questionHash === hash) : await db.answerMemory.where("questionHash").equals(hash).first();
     if (existing?.id && existing.id !== memory.id) {
       setStatus("Another answer already uses that question.");
       return;
     }
 
-    await db.answerMemory.update(memory.id, {
-      questionHash: hash,
-      questionText,
-      answer,
-      editable: true
-    });
+    const patch = { questionHash: hash, questionText, answer, editable: true };
+    if (demoMode) setMemories((current) => current.map((item) => item.id === memory.id ? { ...item, ...patch } : item));
+    else await db.answerMemory.update(memory.id, patch);
     setEditingId(null);
     setEditDraft(emptyDraft);
     setStatus("Answer saved.");
-    await refresh();
+    if (!demoMode) await refresh();
   }
 
   async function deleteAnswer(memory: AnswerMemory) {
     if (!memory.id) return;
-    await db.answerMemory.delete(memory.id);
+    if (demoMode) setMemories((current) => current.filter((item) => item.id !== memory.id));
+    else await db.answerMemory.delete(memory.id);
     setStatus("Answer deleted.");
-    await refresh();
+    if (!demoMode) await refresh();
   }
 
   return (
@@ -1093,9 +1210,15 @@ function MemoryPanel({ memories, refresh }: { memories: AnswerMemory[]; refresh:
 function SettingsPanel({ settings, save }: { settings: Settings; save: (settings: Settings) => Promise<void> }) {
   return (
     <section className="panel">
-      <div className="toggles">
-        <label><input type="checkbox" checked={settings.aiEnabled} onChange={(event) => void save({ ...settings, aiEnabled: event.target.checked })} /> AI drafts</label>
-      </div>
+      <button
+        className="demoModeButton"
+        type="button"
+        aria-pressed={settings.demoMode}
+        onClick={() => void save({ ...settings, demoMode: !settings.demoMode })}
+      >
+        <Sparkles size={15} />
+        {settings.demoMode ? "Exit demo mode" : "Start demo mode"}
+      </button>
       <label className="field">
         <span>Theme</span>
         <select value={settings.theme} onChange={(event) => void save({ ...settings, theme: event.target.value as ThemeMode })}>

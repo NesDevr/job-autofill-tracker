@@ -1,7 +1,7 @@
 import { answerHasPlaceholder, rememberAnswer } from "./mapping";
 import { normalizeCompensationCurrency } from "./compensation";
 import { normalizeProfilePhone } from "./profileValues";
-import { EMPTY_PROFILE, type Application, type Compensation, type FieldDescriptor, type FieldFill, type Profile, type Settings } from "./schema";
+import { EMPTY_PROFILE, type Application, type Compensation, type Profile, type Settings, type UpworkProposalDetails } from "./schema";
 
 type OpenAiOutputContent = {
   type: string;
@@ -30,13 +30,10 @@ type ProfileDraft = Omit<Profile, "skills"> & {
   }>;
 };
 
-type JobPostingDraft = Pick<Application, "company" | "role" | "location" | "workMode" | "compensation" | "jobDescription" | "source" | "jobUrl">;
+type JobPostingDraft = Pick<Application, "company" | "role" | "location" | "workMode" | "compensation" | "jobDescription" | "source" | "jobUrl" | "upwork">;
 type JobPostingExtraction = Omit<JobPostingDraft, "jobDescription">;
 
-const answerSchema = {
-  type: "object",
-  additionalProperties: { type: "string" }
-};
+type UpworkExtraction = UpworkProposalDetails & { isUpwork: boolean };
 
 const singleAnswerSchema = {
   type: "object",
@@ -240,7 +237,7 @@ const profileSchema = {
 const jobPostingSchema = {
   type: "object",
   additionalProperties: false,
-  required: ["company", "role", "location", "workMode", "compensation", "source", "jobUrl"],
+  required: ["company", "role", "location", "workMode", "compensation", "source", "jobUrl", "upwork"],
   properties: {
     company: { type: "string" },
     role: { type: "string" },
@@ -259,54 +256,28 @@ const jobPostingSchema = {
       }
     },
     source: { type: "string" },
-    jobUrl: { type: "string" }
+    jobUrl: { type: "string" },
+    upwork: {
+      type: "object",
+      additionalProperties: false,
+      required: ["isUpwork", "status", "contractType", "proposedAmount", "currency", "baseConnects", "boostBid", "boostCharged", "respondedAt", "interviewedAt", "offeredAt", "hiredAt"],
+      properties: {
+        isUpwork: { type: "boolean" },
+        status: { type: "string", enum: ["Submitted", "Responded", "Interview", "Offered", "Hired", "Declined", "Withdrawn", "Archived"] },
+        contractType: { type: "string", enum: ["hourly", "fixed", ""] },
+        proposedAmount: { type: ["number", "null"] },
+        currency: { type: "string", enum: ["MXN", "USD", "EUR", ""] },
+        baseConnects: { type: ["number", "null"] },
+        boostBid: { type: ["number", "null"] },
+        boostCharged: { type: ["number", "null"] },
+        respondedAt: { type: "string" },
+        interviewedAt: { type: "string" },
+        offeredAt: { type: "string" },
+        hiredAt: { type: "string" }
+      }
+    }
   }
 };
-
-export async function draftAnswers(
-  fields: FieldDescriptor[],
-  profile: Profile,
-  settings: Settings,
-  jobDescription: string
-): Promise<FieldFill[]> {
-  if (!settings.aiEnabled || !settings.apiKey || fields.length === 0) return [];
-
-  const questions = fields.map((field, index) => ({
-    id: String(index + 1),
-    fieldId: field.id,
-    type: field.type,
-    question: field.question,
-    options: field.options
-  }));
-
-  const text = await createOpenAiJson(settings, {
-    instructions: naturalAnswerInstructions,
-    input: [
-      {
-        role: "user",
-        content: JSON.stringify({
-          candidateFacts: profileFactsForAi(profile),
-          jobDescription,
-          questions: questions.map(({ id, type, question, options }) => ({ id, type, question, options })),
-          returnShape: { "1": "answer for question 1" }
-        })
-      }
-    ],
-    schemaName: "job_application_answers",
-    schema: answerSchema,
-    maxOutputTokens: 1800
-  });
-
-  const parsed = JSON.parse(text) as Record<string, string>;
-  const fills: FieldFill[] = [];
-  for (const question of questions) {
-    const value = parsed[question.id];
-    if (!value || answerHasPlaceholder(value)) continue;
-    fills.push({ id: question.fieldId, value, source: "ai", confidence: 0.7 });
-    await rememberAnswer(question.question, value);
-  }
-  return fills;
-}
 
 export async function draftSingleAnswer(
   question: string,
@@ -334,7 +305,7 @@ export async function draftSingleAnswer(
 
   const parsed = JSON.parse(text) as { answer: string };
   if (answerHasPlaceholder(parsed.answer)) throw new Error("AI returned a placeholder instead of a usable answer.");
-  await rememberAnswer(question, parsed.answer);
+  await rememberAnswer(question, parsed.answer, settings.demoMode);
   return parsed.answer;
 }
 
@@ -420,7 +391,7 @@ export async function draftApplicationFromJobPosting(
 
   const text = await createOpenAiJson(settings, {
     instructions:
-      "Extract a job-tracker entry from unstructured job posting text. Use only facts present in the pasted text or provided page URL. Do not invent company, role, location, work mode, or compensation. If compensation is not explicitly present in the pasted text, return compensation as empty text, empty currency, null min, null max, and empty period. Compensation text must preserve exact original salary/rate wording from the pasted text; structured min/max should be plain numbers only when explicitly present. Currency must be MXN, USD, EUR, or an empty string if unknown. If currency is not explicit and the period is monthly, amounts over 10000 are usually MXN and amounts under 10000 are usually USD. If the period is yearly, use the yearly equivalent threshold of 120000.",
+      "Extract a job-tracker entry from unstructured job or proposal text. Use only facts present in the pasted text or provided page URL. Do not invent company, role, location, work mode, compensation, proposal terms, or Connects. If this is Upwork content, set source to Upwork and isUpwork to true; use Private Upwork client only when the text clearly comes from Upwork and no client identity is shown. Extract proposal bid, contract type, base Connects, boost bid, charged boost, and outcome dates only when explicit. A proposal that was just submitted has status Submitted. If this is not Upwork content, set isUpwork false and return empty/null Upwork fields. If compensation is not explicitly present, return compensation as empty text, empty currency, null min, null max, and empty period. Compensation text must preserve exact original wording. Currency must be MXN, USD, EUR, or empty.",
     input: [
       {
         role: "user",
@@ -437,10 +408,32 @@ export async function draftApplicationFromJobPosting(
   });
 
   const draft = JSON.parse(text) as JobPostingExtraction;
+  const upworkExtraction = draft.upwork as UpworkExtraction;
+  const upwork = upworkExtraction.isUpwork
+    ? normalizeUpworkExtraction(upworkExtraction)
+    : undefined;
   return {
     ...draft,
+    source: upwork ? "Upwork" : draft.source,
+    upwork,
     jobDescription: postingText.trim(),
     compensation: normalizeExtractedCompensation(draft.compensation, postingText)
+  };
+}
+
+function normalizeUpworkExtraction(extraction: UpworkExtraction): UpworkProposalDetails {
+  return {
+    status: extraction.status,
+    contractType: extraction.contractType,
+    proposedAmount: extraction.proposedAmount,
+    currency: extraction.currency,
+    baseConnects: extraction.baseConnects,
+    boostBid: extraction.boostBid,
+    boostCharged: extraction.boostCharged,
+    respondedAt: extraction.respondedAt || undefined,
+    interviewedAt: extraction.interviewedAt || undefined,
+    offeredAt: extraction.offeredAt || undefined,
+    hiredAt: extraction.hiredAt || undefined
   };
 }
 

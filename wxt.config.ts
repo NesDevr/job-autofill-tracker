@@ -8,7 +8,8 @@ const jobSiteMatches = [
   "https://*.ashbyhq.com/*",
   "https://*.linkedin.com/jobs/*",
   "https://*.indeed.com/*",
-  "https://*.comeet.co/*"
+  "https://*.comeet.co/*",
+  "https://*.upwork.com/*"
 ];
 
 export default defineConfig({

@@ -66,6 +66,31 @@ select {
   line-height: 1;
 }
 
+.sideDemoBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  border: 1px solid #b87918;
+  border-radius: 999px;
+  background: #fff1c9;
+  color: #71480c;
+  padding: 4px 7px;
+  font-size: 9px;
+  font-weight: 900;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.sideDemoBadge:hover {
+  background: #ffe6a6;
+}
+
+:root[data-theme="dark"] .sideDemoBadge {
+  background: #513913;
+  color: #ffd98b;
+}
+
 .headerActions {
   display: flex;
   gap: 5px;
@@ -572,6 +597,19 @@ select {
   color: #8f1d1d;
 }
 
+.jobLink.copied {
+  border-color: #2f765f;
+  background: #e7f4ed;
+  color: #25624f;
+}
+
+.jobLink:disabled {
+  border-color: #d8cdbc;
+  background: #f1ece3;
+  color: #9a948b;
+  cursor: not-allowed;
+}
+
 .trackedJobControls {
   grid-template-columns: minmax(0, 1fr);
 }
@@ -1068,6 +1106,18 @@ select {
   color: #fecaca;
 }
 
+:root[data-theme="dark"] .jobLink.copied {
+  border-color: #34d399;
+  background: #064e3b;
+  color: #a7f3d0;
+}
+
+:root[data-theme="dark"] .jobLink:disabled {
+  border-color: #334155;
+  background: #172033;
+  color: #64748b;
+}
+
 :root[data-theme="dark"] .trackedJobMeta span {
   border-color: #334155;
   background: #1e293b;
@@ -1125,4 +1175,51 @@ select {
 :root[data-theme="dark"] input::placeholder,
 :root[data-theme="dark"] textarea::placeholder {
   color: #94a3b8;
+}
+
+.upworkBadge {
+  display: inline-flex;
+  width: fit-content;
+  margin-top: 4px;
+  padding: 2px 7px;
+  border: 1px solid #99f6e4;
+  border-radius: 999px;
+  background: #f0fdfa;
+  color: #0f766e !important;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.upworkEditor {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+  padding: 10px;
+  border: 1px solid #99f6e4;
+  border-radius: 10px;
+  background: #f0fdfa;
+}
+
+.upworkEditor strong {
+  grid-column: 1 / -1;
+  color: #0f766e;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.upworkEditor select {
+  grid-column: 1 / -1;
+}
+
+:root[data-theme="dark"] .upworkBadge,
+:root[data-theme="dark"] .upworkEditor {
+  border-color: #2f766d;
+  background: #102a2a;
+}
+
+:root[data-theme="dark"] .upworkBadge,
+:root[data-theme="dark"] .upworkEditor strong {
+  color: #5eead4 !important;
 }
