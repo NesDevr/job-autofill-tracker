@@ -308,6 +308,99 @@ h3 {
   gap: 5px;
 }
 
+.sectionToggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  border: none;
+  background: none;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+}
+
+.sectionToggle svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: #27745f;
+}
+
+:root[data-theme="dark"] .sectionToggle svg {
+  color: #7fd0b4;
+}
+
+.factList {
+  display: grid;
+  gap: 8px;
+}
+
+.skillRow {
+  display: grid;
+  grid-template-columns: 1.3fr 68px 2fr 1.7fr 30px;
+  gap: 6px;
+  align-items: center;
+}
+
+.skillRowHead {
+  color: #465360;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.factCard {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #d8cdbc;
+  border-radius: 9px;
+  background: rgba(255, 253, 248, 0.75);
+  padding: 10px;
+}
+
+.factCardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.factCardHeader strong {
+  font-size: 13px;
+}
+
+.factRemove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid #c6b9a8;
+  border-radius: 6px;
+  background: #fffdf8;
+  color: #8a3a28;
+  cursor: pointer;
+}
+
+.factRemove:hover {
+  border-color: #8a3a28;
+}
+
+.factAdd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  justify-self: start;
+  border: 1px solid #27745f;
+  border-radius: 7px;
+  background: #fffdf8;
+  color: #1f6654;
+  cursor: pointer;
+  padding: 7px 11px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
 .field span {
   color: #465360;
   font-size: 12px;
@@ -1050,9 +1143,29 @@ textarea:focus {
   color: #f8fafc;
 }
 
+:root[data-theme="dark"] .skillRowHead {
+  color: #c3ceda;
+}
+
+:root[data-theme="dark"] .factRemove,
+:root[data-theme="dark"] .factAdd {
+  border-color: #334155;
+  background: rgba(22, 31, 45, 0.94);
+}
+
+:root[data-theme="dark"] .factRemove {
+  color: #f0a58f;
+}
+
+:root[data-theme="dark"] .factAdd {
+  color: #7fd0b4;
+  border-color: #2f8a70;
+}
+
 :root[data-theme="dark"] .metric,
 :root[data-theme="dark"] .panel,
 :root[data-theme="dark"] .profileSection,
+:root[data-theme="dark"] .factCard,
 :root[data-theme="dark"] .appRow,
 :root[data-theme="dark"] .answer,
 :root[data-theme="dark"] .empty,

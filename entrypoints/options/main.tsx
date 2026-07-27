@@ -6,14 +6,13 @@ import { normalizeCompensationCurrency } from "../../lib/compensation";
 import { db } from "../../lib/db";
 import { createDemoApplications, createDemoMemories } from "../../lib/demo";
 import { questionHash } from "../../lib/mapping";
-import { formatExperience, formatProjects, formatSkills, parseExperience, parseProjects, parseSkills } from "../../lib/profileText";
-import { EMPTY_PROFILE, type AnswerMemory, type Application, type ApplicationStatus, type CompensationCurrency, type CompensationPeriod, type PendingApplication, type Profile, type Settings, type ThemeMode, type UpworkProposalStatus } from "../../lib/schema";
-import { clearDashboardLaunch, getDashboardLaunch, getPendingApplications, getProfile, getSettings, removePendingApplication, saveProfile, saveSettings } from "../../lib/storage";
+import { APPLICATION_STATUSES, EMPTY_PROFILE, type AnswerMemory, type Application, type ApplicationStatus, type CompensationCurrency, type CompensationPeriod, type Experience, type PendingApplication, type PersonalProject, type Profile, type Settings, type ThemeMode, type UpworkProposalStatus } from "../../lib/schema";
+import { bumpApplicationsRev, clearDashboardLaunch, getDashboardLaunch, getPendingApplications, getProfile, getSettings, removePendingApplication, saveProfile, saveSettings } from "../../lib/storage";
 import { applyTheme } from "../../lib/theme";
 import { changeUpworkStatus, UPWORK_PROPOSAL_STATUSES, upworkRate, upworkSummary } from "../../lib/upwork";
 import "./styles.css";
 
-const statuses: ApplicationStatus[] = ["Saved", "Applied", "Screen", "Interview", "Offer", "Rejected", "Ghosted"];
+const statuses = APPLICATION_STATUSES;
 const defaultBoardStatuses: ApplicationStatus[] = ["Applied", "Interview", "Rejected"];
 
 function App() {
@@ -37,6 +36,7 @@ function App() {
       if (changes.pendingApplications) void refresh();
       if (changes.dashboardLaunch) void consumeDashboardLaunch();
       if (changes.settings) void refresh();
+      if (changes.applicationsRev) void reloadApplications();
     };
 
     chrome.storage.onChanged.addListener(handleStorageChange);
@@ -94,6 +94,14 @@ function App() {
       setPendingApplications(await getPendingApplications());
       setMemories(await db.answerMemory.orderBy("lastUsed").reverse().toArray());
     }
+  }
+
+  // Narrow reload for cross-context application changes (widget drawer in another
+  // tab). Deliberately does not touch profile state — a full refresh() would
+  // clobber in-flight profile edits.
+  async function reloadApplications() {
+    const nextSettings = await getSettings();
+    setApplications(nextSettings.demoMode ? createDemoApplications() : await db.applications.orderBy("dateApplied").reverse().toArray());
   }
 
   async function persistSettings(next: Settings) {
@@ -216,13 +224,6 @@ function ProfilePanel({
   const [smartAddText, setSmartAddText] = useState("");
   const [smartAddStatus, setSmartAddStatus] = useState("");
   const [smartAdding, setSmartAdding] = useState(false);
-  const [skillsText, setSkillsText] = useState(() => formatSkills(profile.skills));
-  const [experienceText, setExperienceText] = useState(() => formatExperience(profile.experience));
-  const [projectsText, setProjectsText] = useState(() => formatProjects(profile.personalProjects));
-
-  useEffect(() => setSkillsText(formatSkills(profile.skills)), [profile.skills]);
-  useEffect(() => setExperienceText(formatExperience(profile.experience)), [profile.experience]);
-  useEffect(() => setProjectsText(formatProjects(profile.personalProjects)), [profile.personalProjects]);
 
   function update(path: string, value: string | boolean) {
     const { resumeFile, coverLetterFile, ...profileFacts } = profile;
@@ -236,18 +237,6 @@ function ProfilePanel({
     for (const key of keys.slice(0, -1)) cursor = cursor[key] as Record<string, unknown>;
     cursor[keys.at(-1)!] = value;
     setProfile(clone);
-  }
-
-  function updateSkills(value: string) {
-    setProfile({ ...profile, skills: parseSkills(value) });
-  }
-
-  function updateExperience(value: string) {
-    setProfile({ ...profile, experience: parseExperience(value) });
-  }
-
-  function updateProjects(value: string) {
-    setProfile({ ...profile, personalProjects: parseProjects(value) });
   }
 
   async function smartAdd() {
@@ -316,11 +305,7 @@ function ProfilePanel({
         {smartAddStatus && <p className="smartProfileStatus">{smartAddStatus}</p>}
       </div>
 
-      <div className="profileSection">
-        <div className="profileSectionHeading">
-          <h3>Additional answer knowledge</h3>
-          <p>Paste completed Q&amp;As or nuanced facts that do not fit another profile section.</p>
-        </div>
+      <Section title="Additional answer knowledge" hint="Paste completed Q&As or nuanced facts that do not fit another profile section.">
         <label className="field">
           <span>Facts AI may use in application answers</span>
           <textarea
@@ -330,7 +315,7 @@ function ProfilePanel({
             placeholder="Example: I advise non-technical fintech clients during implementations..."
           />
         </label>
-      </div>
+      </Section>
 
       <label className="importCv">
         <Upload size={16} />
@@ -344,11 +329,7 @@ function ProfilePanel({
       </label>
       {importStatus && <p className="saveStamp">{importStatus}</p>}
 
-      <div className="profileSection">
-        <div className="profileSectionHeading">
-          <h3>Identity & contact</h3>
-          <p>Reusable facts copied directly into applications.</p>
-        </div>
+      <Section title="Identity & contact" hint="Reusable facts copied directly into applications.">
         <div className="grid two">
         <Field label="First name" value={profile.identity.firstName} onChange={(value) => update("identity.firstName", value)} />
         <Field label="Middle name" value={profile.identity.middleName} onChange={(value) => update("identity.middleName", value)} />
@@ -366,13 +347,9 @@ function ProfilePanel({
         <Field label="GitHub" value={profile.identity.links.github} onChange={(value) => update("identity.links.github", value)} />
         <Field label="Portfolio" value={profile.identity.links.portfolio} onChange={(value) => update("identity.links.portfolio", value)} />
         </div>
-      </div>
+      </Section>
 
-      <div className="profileSection">
-        <div className="profileSectionHeading">
-          <h3>Authorization & application defaults</h3>
-          <p>Explicit reusable answers. Legal declarations are always left for review.</p>
-        </div>
+      <Section title="Authorization & application defaults" hint="Explicit reusable answers. Legal declarations are always left for review.">
         <div className="toggles">
           <label><input type="checkbox" checked={profile.workAuthorization.usAuthorized} onChange={(event) => update("workAuthorization.usAuthorized", event.target.checked)} /> US authorized</label>
           <label><input type="checkbox" checked={profile.workAuthorization.requiresSponsorship} onChange={(event) => update("workAuthorization.requiresSponsorship", event.target.checked)} /> Needs sponsorship</label>
@@ -401,39 +378,28 @@ function ProfilePanel({
             </select>
           </label>
         </div>
-      </div>
+      </Section>
 
-      <div className="profileSection">
-        <div className="profileSectionHeading">
-          <h3>Optional demographic answers</h3>
-          <p>Leave blank to keep these questions in the autofill review.</p>
-        </div>
+      <Section title="Optional demographic answers" hint="Leave blank to keep these questions in the autofill review.">
         <div className="grid two">
           <Field label="Gender" value={profile.demographics.gender} onChange={(value) => update("demographics.gender", value)} />
           <Field label="Ethnic origin" value={profile.demographics.race} onChange={(value) => update("demographics.race", value)} />
           <Field label="Veteran status" value={profile.demographics.veteran} onChange={(value) => update("demographics.veteran", value)} />
           <Field label="Disability disclosure" value={profile.demographics.disability} onChange={(value) => update("demographics.disability", value)} />
         </div>
-      </div>
+      </Section>
 
-      <div className="profileSection">
-        <div className="profileSectionHeading">
-          <h3>Experience facts</h3>
-          <p>Used for employer, title, skills, and drafted screening answers.</p>
-        </div>
-      <label className="field">
-        <span>Skills, one per line: name|years|note|services</span>
-        <textarea rows={6} value={skillsText} onChange={(event) => setSkillsText(event.target.value)} onBlur={() => updateSkills(skillsText)} />
-      </label>
-      <label className="field">
-        <span>Experience, one block per company: title|company|start|end, then responsibilities, then stack</span>
-        <textarea rows={10} value={experienceText} onChange={(event) => setExperienceText(event.target.value)} onBlur={() => updateExperience(experienceText)} />
-      </label>
-      <label className="field">
-        <span>Personal projects: name|role|start|end, then description, highlights, stack, and url|repository</span>
-        <textarea rows={10} value={projectsText} onChange={(event) => setProjectsText(event.target.value)} onBlur={() => updateProjects(projectsText)} />
-      </label>
-      </div>
+      <Section title={`Skills (${Object.keys(profile.skills).length})`} hint="Used for affinity scoring, autofill, and drafted screening answers.">
+        <SkillsEditor skills={profile.skills} onCommit={(skills) => setProfile({ ...profile, skills })} />
+      </Section>
+
+      <Section title={`Experience (${profile.experience.length})`} hint="Used for employer, title, and drafted screening answers.">
+        <ExperienceEditor experience={profile.experience} onCommit={(experience) => setProfile({ ...profile, experience })} />
+      </Section>
+
+      <Section title={`Personal projects (${profile.personalProjects.length})`} hint="Used for drafted screening answers and affinity scoring.">
+        <ProjectsEditor projects={profile.personalProjects} onCommit={(personalProjects) => setProfile({ ...profile, personalProjects })} />
+      </Section>
     </section>
   );
 }
@@ -500,6 +466,7 @@ function TrackerPanel({
       setApplications((current) => current.map((app) => app.id === id ? { ...app, status } : app));
     } else {
       await db.applications.update(id, { status });
+      await bumpApplicationsRev();
       await refresh();
     }
     setDraggedId(null);
@@ -536,7 +503,10 @@ function TrackerPanel({
       } : undefined
     };
     if (demoMode) setApplications((current) => [application, ...current]);
-    else await db.applications.add(application);
+    else {
+      await db.applications.add(application);
+      await bumpApplicationsRev();
+    }
     setManualDraft({
       company: "",
       role: "",
@@ -626,7 +596,10 @@ function TrackerPanel({
         notes: ""
       };
       if (demoMode) setApplications((current) => [application, ...current]);
-      else await db.applications.add(application);
+      else {
+        await db.applications.add(application);
+        await bumpApplicationsRev();
+      }
       if (activePendingId) {
         await removePendingApplication(activePendingId);
         setActivePendingId(null);
@@ -773,11 +746,11 @@ function TrackerPanel({
                     app={app}
                     onUpdate={(patch) => {
                       if (demoMode) setApplications((current) => current.map((item) => item.id === app.id ? { ...item, ...patch } : item));
-                      else void db.applications.update(app.id!, patch).then(refresh);
+                      else void db.applications.update(app.id!, patch).then(bumpApplicationsRev).then(refresh);
                     }}
                     onDelete={() => {
                       if (demoMode) setApplications((current) => current.filter((item) => item.id !== app.id));
-                      else void db.applications.delete(app.id!).then(refresh);
+                      else void db.applications.delete(app.id!).then(bumpApplicationsRev).then(refresh);
                     }}
                     variant="card"
                     key={app.id}
@@ -1228,6 +1201,10 @@ function SettingsPanel({ settings, save }: { settings: Settings; save: (settings
       </label>
       <Field label="OpenAI API key" type="password" value={settings.apiKey} onChange={(value) => void save({ ...settings, apiKey: value })} />
       <Field label="Model" value={settings.model} onChange={(value) => void save({ ...settings, model: value })} />
+      <label>
+        <input type="checkbox" checked={settings.cardBadges} onChange={(event) => void save({ ...settings, cardBadges: event.target.checked })} />
+        {" "}Show match badges on job search cards (applies after page reload)
+      </label>
       <div className="siteGrid">
         {Object.entries(settings.enabledSites).map(([site, enabled]) => (
           <label key={site}><input type="checkbox" checked={enabled} onChange={(event) => void save({ ...settings, enabledSites: { ...settings.enabledSites, [site]: event.target.checked } })} /> {site}</label>
@@ -1235,6 +1212,282 @@ function SettingsPanel({ settings, save }: { settings: Settings; save: (settings
       </div>
     </section>
   );
+}
+
+function Section({ title, hint, children }: { title: string; hint: string; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="profileSection">
+      <button type="button" className="sectionToggle" onClick={() => setOpen((value) => !value)} aria-expanded={open}>
+        {open ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+        <div className="profileSectionHeading">
+          <h3>{title}</h3>
+          <p>{hint}</p>
+        </div>
+      </button>
+      {open && children}
+    </div>
+  );
+}
+
+type SkillRow = { name: string; years: string; note: string; services: string };
+
+function skillsToRows(skills: Profile["skills"]): SkillRow[] {
+  return Object.entries(skills).map(([name, fact]) => ({
+    name,
+    years: String(fact.years),
+    note: fact.note,
+    services: fact.services?.join(", ") ?? ""
+  }));
+}
+
+function rowsToSkills(rows: SkillRow[]): Profile["skills"] {
+  const skills: Profile["skills"] = {};
+  for (const row of rows) {
+    const name = row.name.trim();
+    if (!name) continue;
+    skills[name] = {
+      years: Number(row.years) || 0,
+      note: row.note.trim(),
+      services: commaList(row.services)
+    };
+  }
+  return skills;
+}
+
+function SkillsEditor({ skills, onCommit }: { skills: Profile["skills"]; onCommit: (skills: Profile["skills"]) => void }) {
+  const [rows, setRows] = useState<SkillRow[]>(() => skillsToRows(skills));
+  useEffect(() => setRows(skillsToRows(skills)), [skills]);
+
+  const edit = (index: number, patch: Partial<SkillRow>) => {
+    setRows((current) => current.map((row, i) => (i === index ? { ...row, ...patch } : row)));
+  };
+  const commit = (nextRows: SkillRow[]) => {
+    const parsed = rowsToSkills(nextRows);
+    if (JSON.stringify(parsed) !== JSON.stringify(skills)) onCommit(parsed);
+  };
+  const remove = (index: number) => {
+    const next = rows.filter((_, i) => i !== index);
+    setRows(next);
+    commit(next);
+  };
+
+  return (
+    <div className="factList" onBlur={() => commit(rows)}>
+      <div className="skillRow skillRowHead">
+        <span>Skill</span>
+        <span>Years</span>
+        <span>Note</span>
+        <span>Services</span>
+        <span />
+      </div>
+      {rows.map((row, index) => (
+        <div className="skillRow" key={index}>
+          <input placeholder="Skill name" value={row.name} onChange={(event) => edit(index, { name: event.target.value })} />
+          <input type="number" min="0" value={row.years} onChange={(event) => edit(index, { years: event.target.value })} />
+          <input placeholder="Note" value={row.note} onChange={(event) => edit(index, { note: event.target.value })} />
+          <input placeholder="Comma separated" value={row.services} onChange={(event) => edit(index, { services: event.target.value })} />
+          <button type="button" className="factRemove" title="Remove skill" onClick={() => remove(index)}>
+            <X size={13} />
+          </button>
+        </div>
+      ))}
+      <button type="button" className="factAdd" onClick={() => setRows([...rows, { name: "", years: "0", note: "", services: "" }])}>
+        <Plus size={14} />
+        Add skill
+      </button>
+    </div>
+  );
+}
+
+type ExperienceRow = { title: string; company: string; start: string; end: string; highlights: string; stack: string };
+
+function experienceToRows(experience: Experience[]): ExperienceRow[] {
+  return experience.map((item) => ({
+    title: item.title,
+    company: item.company,
+    start: item.start,
+    end: item.end,
+    highlights: item.highlights.join("\n"),
+    stack: item.stack.join(", ")
+  }));
+}
+
+function rowsToExperience(rows: ExperienceRow[]): Experience[] {
+  return rows
+    .filter((row) => row.title.trim() || row.company.trim())
+    .map((row) => ({
+      title: row.title.trim(),
+      company: row.company.trim(),
+      start: row.start.trim(),
+      end: row.end.trim(),
+      highlights: lineList(row.highlights),
+      stack: commaList(row.stack)
+    }));
+}
+
+function ExperienceEditor({ experience, onCommit }: { experience: Experience[]; onCommit: (experience: Experience[]) => void }) {
+  const [rows, setRows] = useState<ExperienceRow[]>(() => experienceToRows(experience));
+  useEffect(() => setRows(experienceToRows(experience)), [experience]);
+
+  const edit = (index: number, patch: Partial<ExperienceRow>) => {
+    setRows((current) => current.map((row, i) => (i === index ? { ...row, ...patch } : row)));
+  };
+  const commit = (nextRows: ExperienceRow[]) => {
+    const parsed = rowsToExperience(nextRows);
+    if (JSON.stringify(parsed) !== JSON.stringify(experience)) onCommit(parsed);
+  };
+  const remove = (index: number) => {
+    const next = rows.filter((_, i) => i !== index);
+    setRows(next);
+    commit(next);
+  };
+
+  return (
+    <div className="factList" onBlur={() => commit(rows)}>
+      {rows.map((row, index) => (
+        <div className="factCard" key={index}>
+          <div className="factCardHeader">
+            <strong>{row.title.trim() || row.company.trim() || "New role"}</strong>
+            <button type="button" className="factRemove" title="Remove role" onClick={() => remove(index)}>
+              <X size={13} />
+            </button>
+          </div>
+          <div className="grid two">
+            <Field label="Title" value={row.title} onChange={(value) => edit(index, { title: value })} />
+            <Field label="Company" value={row.company} onChange={(value) => edit(index, { company: value })} />
+            <Field label="Start (e.g. Jan 2023)" value={row.start} onChange={(value) => edit(index, { start: value })} />
+            <Field label="End (e.g. Sep 2023 or Present)" value={row.end} onChange={(value) => edit(index, { end: value })} />
+          </div>
+          <label className="field">
+            <span>Responsibilities / highlights, one per line</span>
+            <textarea rows={3} value={row.highlights} onChange={(event) => edit(index, { highlights: event.target.value })} />
+          </label>
+          <Field label="Stack, comma separated" value={row.stack} onChange={(value) => edit(index, { stack: value })} />
+        </div>
+      ))}
+      <button
+        type="button"
+        className="factAdd"
+        onClick={() => setRows([...rows, { title: "", company: "", start: "", end: "", highlights: "", stack: "" }])}
+      >
+        <Plus size={14} />
+        Add role
+      </button>
+    </div>
+  );
+}
+
+type ProjectRow = {
+  name: string;
+  role: string;
+  start: string;
+  end: string;
+  description: string;
+  highlights: string;
+  stack: string;
+  url: string;
+  repository: string;
+};
+
+function projectsToRows(projects: PersonalProject[]): ProjectRow[] {
+  return projects.map((project) => ({
+    name: project.name,
+    role: project.role,
+    start: project.start,
+    end: project.end,
+    description: project.description,
+    highlights: project.highlights.join("\n"),
+    stack: project.stack.join(", "),
+    url: project.url,
+    repository: project.repository
+  }));
+}
+
+function rowsToProjects(rows: ProjectRow[]): PersonalProject[] {
+  return rows
+    .filter((row) => row.name.trim())
+    .map((row) => ({
+      name: row.name.trim(),
+      role: row.role.trim(),
+      start: row.start.trim(),
+      end: row.end.trim(),
+      description: row.description.trim(),
+      highlights: lineList(row.highlights),
+      stack: commaList(row.stack),
+      url: row.url.trim(),
+      repository: row.repository.trim()
+    }));
+}
+
+function ProjectsEditor({ projects, onCommit }: { projects: PersonalProject[]; onCommit: (projects: PersonalProject[]) => void }) {
+  const [rows, setRows] = useState<ProjectRow[]>(() => projectsToRows(projects));
+  useEffect(() => setRows(projectsToRows(projects)), [projects]);
+
+  const edit = (index: number, patch: Partial<ProjectRow>) => {
+    setRows((current) => current.map((row, i) => (i === index ? { ...row, ...patch } : row)));
+  };
+  const commit = (nextRows: ProjectRow[]) => {
+    const parsed = rowsToProjects(nextRows);
+    if (JSON.stringify(parsed) !== JSON.stringify(projects)) onCommit(parsed);
+  };
+  const remove = (index: number) => {
+    const next = rows.filter((_, i) => i !== index);
+    setRows(next);
+    commit(next);
+  };
+
+  return (
+    <div className="factList" onBlur={() => commit(rows)}>
+      {rows.map((row, index) => (
+        <div className="factCard" key={index}>
+          <div className="factCardHeader">
+            <strong>{row.name.trim() || "New project"}</strong>
+            <button type="button" className="factRemove" title="Remove project" onClick={() => remove(index)}>
+              <X size={13} />
+            </button>
+          </div>
+          <div className="grid two">
+            <Field label="Name" value={row.name} onChange={(value) => edit(index, { name: value })} />
+            <Field label="Role" value={row.role} onChange={(value) => edit(index, { role: value })} />
+            <Field label="Start" value={row.start} onChange={(value) => edit(index, { start: value })} />
+            <Field label="End" value={row.end} onChange={(value) => edit(index, { end: value })} />
+          </div>
+          <label className="field">
+            <span>Description</span>
+            <textarea rows={2} value={row.description} onChange={(event) => edit(index, { description: event.target.value })} />
+          </label>
+          <label className="field">
+            <span>Highlights, one per line</span>
+            <textarea rows={3} value={row.highlights} onChange={(event) => edit(index, { highlights: event.target.value })} />
+          </label>
+          <div className="grid two">
+            <Field label="Stack, comma separated" value={row.stack} onChange={(value) => edit(index, { stack: value })} />
+            <Field label="URL" value={row.url} onChange={(value) => edit(index, { url: value })} />
+            <Field label="Repository" value={row.repository} onChange={(value) => edit(index, { repository: value })} />
+          </div>
+        </div>
+      ))}
+      <button
+        type="button"
+        className="factAdd"
+        onClick={() =>
+          setRows([...rows, { name: "", role: "", start: "", end: "", description: "", highlights: "", stack: "", url: "", repository: "" }])
+        }
+      >
+        <Plus size={14} />
+        Add project
+      </button>
+    </div>
+  );
+}
+
+function commaList(value: string): string[] {
+  return value.split(",").map((item) => item.trim()).filter(Boolean);
+}
+
+function lineList(value: string): string[] {
+  return value.split("\n").map((item) => item.trim()).filter(Boolean);
 }
 
 function Field({ label, value, onChange, type = "text" }: { label: string; value: string; onChange: (value: string) => void; type?: string }) {
