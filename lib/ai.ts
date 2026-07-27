@@ -1,7 +1,7 @@
 import { answerHasPlaceholder, rememberAnswer } from "./mapping";
 import { normalizeCompensationCurrency } from "./compensation";
 import { normalizeProfilePhone } from "./profileValues";
-import { EMPTY_PROFILE, type Application, type Compensation, type Profile, type Settings, type UpworkProposalDetails } from "./schema";
+import { EMPTY_PROFILE, type Application, type Compensation, type FieldDescriptor, type FieldFill, type PageContext, type Profile, type Settings, type UpworkProposalDetails } from "./schema";
 
 type OpenAiOutputContent = {
   type: string;
@@ -30,7 +30,7 @@ type ProfileDraft = Omit<Profile, "skills"> & {
   }>;
 };
 
-type JobPostingDraft = Pick<Application, "company" | "role" | "location" | "workMode" | "compensation" | "jobDescription" | "source" | "jobUrl" | "upwork">;
+export type JobPostingDraft = Pick<Application, "company" | "role" | "location" | "workMode" | "compensation" | "jobDescription" | "source" | "jobUrl" | "upwork">;
 type JobPostingExtraction = Omit<JobPostingDraft, "jobDescription">;
 
 type UpworkExtraction = UpworkProposalDetails & { isUpwork: boolean };
@@ -46,6 +46,27 @@ const singleAnswerSchema = {
 
 const naturalAnswerInstructions =
   "Answer job-application questions in first person using only the candidate facts provided. Sound like a normal, relaxed professional speaking plainly—not a résumé, cover letter, sales pitch, or formal template. Answer the exact question directly. Default to 2–5 short sentences and under 90 words; use more only when the question explicitly asks for detail. Use contractions when natural. Include only the strongest relevant details instead of listing everything. Avoid canned introductions, conclusions, headings, bullet points, corporate clichés, inflated claims, and overly polished wording. Never write TODO, placeholders, bracketed notes, or mention missing profile data. If a fact is unknown, omit it. If no relevant experience is provided, say plainly that you do not have direct experience yet and stop. Never invent tools, employers, years, credentials, metrics, locations, authorization, salary, or availability.";
+
+const fieldFillsSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["fills"],
+  properties: {
+    fills: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["id", "value", "confidence"],
+        properties: {
+          id: { type: "string" },
+          value: { type: "string" },
+          confidence: { type: "number" }
+        }
+      }
+    }
+  }
+};
 
 const profileSchema = {
   type: "object",
@@ -279,6 +300,57 @@ const jobPostingSchema = {
   }
 };
 
+export type JobFitAnalysis = {
+  score: number;
+  verdict: string;
+  strengths: string[];
+  gaps: string[];
+  pitchAngle: string;
+};
+
+const jobFitSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["score", "verdict", "strengths", "gaps", "pitchAngle"],
+  properties: {
+    score: { type: "number" },
+    verdict: { type: "string" },
+    strengths: { type: "array", items: { type: "string" } },
+    gaps: { type: "array", items: { type: "string" } },
+    pitchAngle: { type: "string" }
+  }
+};
+
+export async function analyzeJobFit(
+  jobDescription: string,
+  page: PageContext,
+  profile: Profile,
+  settings: Settings
+): Promise<JobFitAnalysis> {
+  if (!settings.apiKey) throw new Error("OpenAI API key is required before analyzing job fit.");
+  if (!jobDescription.trim()) throw new Error("No job description was captured from this page.");
+
+  const text = await createOpenAiJson(settings, {
+    instructions:
+      "Judge how well the candidate fits the job posting. Score 0-100 from the semantic overlap between the candidate facts and the job requirements, weighting must-have requirements heaviest. Verdict is one plain sentence. Strengths are the candidate facts that best match the requirements; gaps are requirements the candidate facts do not cover. pitchAngle is one or two sentences on how the candidate should frame their application. Cite only facts present in candidateFacts. Never invent tools, employers, years, credentials, or metrics.",
+    input: [
+      {
+        role: "user",
+        content: JSON.stringify({
+          candidateFacts: profileFactsForAi(profile),
+          job: { company: page.company, role: page.role, source: page.source },
+          jobDescription
+        })
+      }
+    ],
+    schemaName: "job_fit_analysis",
+    schema: jobFitSchema,
+    maxOutputTokens: 1200
+  });
+
+  return JSON.parse(text) as JobFitAnalysis;
+}
+
 export async function draftSingleAnswer(
   question: string,
   profile: Profile,
@@ -307,6 +379,49 @@ export async function draftSingleAnswer(
   if (answerHasPlaceholder(parsed.answer)) throw new Error("AI returned a placeholder instead of a usable answer.");
   await rememberAnswer(question, parsed.answer, settings.demoMode);
   return parsed.answer;
+}
+
+export async function draftFieldFills(
+  fields: FieldDescriptor[],
+  jobDescription: string,
+  page: PageContext,
+  autofillContext: string,
+  profile: Profile,
+  settings: Settings
+): Promise<FieldFill[]> {
+  if (!settings.apiKey) throw new Error("OpenAI API key is required to use the saved autofill context.");
+  if (!autofillContext.trim()) throw new Error("Autofill context is required before drafting form answers.");
+  if (fields.length === 0) return [];
+
+  const text = await createOpenAiJson(settings, {
+    instructions: `${naturalAnswerInstructions} The user-provided applicationContext contains additional facts and preferences for this specific application. Answer only fields that can be supported by candidateFacts or applicationContext; omit every field whose answer is unknown. For select or radio fields, value must exactly match one provided option. Never answer legal attestations, consent, demographic questions, or sensitive identity questions from inference. Return the original field id unchanged.`,
+    input: [
+      {
+        role: "user",
+        content: JSON.stringify({
+          candidateFacts: profileFactsForAi(profile),
+          applicationContext: autofillContext.trim(),
+          job: { company: page.company, role: page.role, source: page.source },
+          jobDescription,
+          fields: fields.map(({ id, question, type, options, required }) => ({ id, question, type, options, required }))
+        })
+      }
+    ],
+    schemaName: "application_field_fills",
+    schema: fieldFillsSchema,
+    maxOutputTokens: 1800
+  });
+
+  const requestedIds = new Set(fields.map((field) => field.id));
+  const parsed = JSON.parse(text) as { fills: Array<{ id: string; value: string; confidence: number }> };
+  return parsed.fills
+    .filter((fill) => requestedIds.has(fill.id) && fill.value.trim() && !answerHasPlaceholder(fill.value))
+    .map((fill) => ({
+      id: fill.id,
+      value: fill.value,
+      source: "ai" as const,
+      confidence: Math.max(0, Math.min(1, fill.confidence))
+    }));
 }
 
 export async function importProfileFromCv(

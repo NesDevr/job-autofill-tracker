@@ -1,49 +1,13 @@
-import { applyFill, type FillTarget } from "../lib/fillers";
-import { formatProfileNationalPhone, formatProfilePhone } from "../lib/profileValues";
-import { getProfile } from "../lib/storage";
-import type { Application, AutofillReviewItem, ExtensionMessage, FieldDescriptor, FieldFill, PageContext, PendingApplication, Profile } from "../lib/schema";
+import { applyFill, type FillTarget } from "../../lib/fillers";
+import { canonicalJobUrl } from "../../lib/jobs";
+import { formatProfileNationalPhone, formatProfilePhone } from "../../lib/profileValues";
+import { getProfile } from "../../lib/storage";
+import type { Application, AutofillReviewItem, ExtensionMessage, FieldDescriptor, FieldFill, PageContext, PendingApplication, Profile } from "../../lib/schema";
 
 const fieldRefs = new Map<string, FillTarget>();
 const loggedSubmissionKeys = new Set<string>();
 
-export default defineContentScript({
-  matches: [
-    "https://*.greenhouse.io/*",
-    "https://*.lever.co/*",
-    "https://*.ashbyhq.com/*",
-    "https://*.linkedin.com/jobs/*",
-    "https://*.indeed.com/*",
-    "https://*.comeet.co/*",
-    "https://*.upwork.com/*"
-  ],
-  allFrames: true,
-  runAt: "document_idle",
-  main() {
-    if (!isAllowedJobPage()) return;
-    if (isTopPageWithEmbeddedJobForm()) return;
-    chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, sendResponse) => {
-      if (message.kind === "AUTOFILL_CURRENT_FORM") {
-        fillCurrentForm()
-          .then(sendResponse)
-          .catch((error: unknown) => {
-            const detail = error instanceof Error ? error.message : String(error);
-            sendResponse({ ok: false, error: detail });
-          });
-        return true;
-      }
-
-      if (message.kind === "TRACK_CURRENT_APPLICATION") {
-        sendResponse({ ok: true, pending: queueTrackCurrentApplication() });
-        return false;
-      }
-
-      return false;
-    });
-    watchSubmit();
-  }
-});
-
-function isAllowedJobPage(): boolean {
+export function isAllowedJobPage(): boolean {
   const host = location.hostname.toLowerCase();
   const path = location.pathname.toLowerCase();
   if (host.includes("hcaptcha.com")) return false;
@@ -61,11 +25,22 @@ function isAllowedJobPage(): boolean {
 
 function hasApplicationSurface(): boolean {
   const text = normalizeSignal(document.body?.innerText ?? "");
-  if (!hasAny(text, ["application", "resume", "upload your resume", "submit application"])) return false;
-  return Array.from(document.querySelectorAll<HTMLElement>("input,textarea,select,button")).some(isVisible);
+  const strongPhrase = hasAny(text, [
+    "submit application",
+    "upload your resume",
+    "upload resume",
+    "upload your cv",
+    "job application",
+    "application questions",
+    "cover letter",
+    "applying for"
+  ]);
+  if (!strongPhrase) return false;
+  const fields = Array.from(document.querySelectorAll<HTMLElement>("input, textarea, select")).filter(isVisible);
+  return fields.length >= 3;
 }
 
-function isTopPageWithEmbeddedJobForm(): boolean {
+export function isTopPageWithEmbeddedJobForm(): boolean {
   if (window.self !== window.top) return false;
   return Array.from(document.querySelectorAll<HTMLIFrameElement>("iframe")).some((iframe) =>
     isJobFrameUrl(iframe.src)
@@ -89,17 +64,17 @@ function isJobFrameUrl(src: string): boolean {
   }
 }
 
-async function fillCurrentForm(): Promise<{ ok: true; filled: number; resumeOpened: boolean; review: AutofillReviewItem[] }> {
+export async function fillCurrentForm(autofillContext?: string): Promise<{ ok: true; filled: number; resumeOpened: boolean; review: AutofillReviewItem[] }> {
   const profile = await getProfile();
   const review = new Map<string, AutofillReviewItem>();
   const firstFields = extractFields();
-  await fillPass(firstFields, profile, review);
+  await fillPass(firstFields, profile, review, autofillContext);
 
   await wait(200);
   const initialQuestions = new Set(firstFields.map((field) => field.question));
   const secondFields = extractFields();
   const revealedFields = secondFields.filter((field) => !initialQuestions.has(field.question));
-  if (revealedFields.length > 0) await fillPass(revealedFields, profile, review);
+  if (revealedFields.length > 0) await fillPass(revealedFields, profile, review, autofillContext);
 
   for (const field of extractFields()) {
     if (review.has(fieldKey(field))) continue;
@@ -126,7 +101,7 @@ async function fillCurrentForm(): Promise<{ ok: true; filled: number; resumeOpen
   };
 }
 
-async function fillPass(fields: FieldDescriptor[], profile: Profile, review: Map<string, AutofillReviewItem>): Promise<void> {
+async function fillPass(fields: FieldDescriptor[], profile: Profile, review: Map<string, AutofillReviewItem>, autofillContext?: string): Promise<void> {
   const fieldsToMap = fields.filter((field) => {
     const target = fieldRefs.get(field.id);
     if (!target) return false;
@@ -151,7 +126,8 @@ async function fillPass(fields: FieldDescriptor[], profile: Profile, review: Map
     kind: "MAP_FIELDS",
     fields: fieldsToMap,
     jobDescription: extractJobDescription(),
-    page: getPageContext()
+    page: getPageContext(),
+    autofillContext
   };
   const response = await chrome.runtime.sendMessage(request);
   if (!response?.ok) throw new Error(response?.error ?? "Mapping failed.");
@@ -635,16 +611,33 @@ function wait(milliseconds: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 }
 
-function extractJobDescription(): string {
-  const selectors = [
-    "[data-automation-id='jobPostingDescription']",
-    ".job__description",
-    ".posting-page",
-    ".jobs-description",
-    "main"
-  ];
-  const text = selectors.map((selector) => document.querySelector<HTMLElement>(selector)?.innerText ?? "").find((value) => value.length > 300);
-  return (text ?? document.body.innerText).slice(0, 12000);
+const JOB_DESCRIPTION_SELECTORS = [
+  "[data-automation-id='jobPostingDescription']",
+  ".job__description",
+  ".posting-page",
+  ".jobs-description",
+  "main"
+];
+
+// On LinkedIn search pages the selected job renders in a right-hand detail pane
+// while the left rail lists other jobs; unscoped queries hit the rail first and
+// extract the wrong job. On /jobs/view/ pages these containers don't exist, so
+// this falls back to the whole document.
+function jobDetailRoot(): ParentNode {
+  if (!location.hostname.includes("linkedin.com")) return document;
+  return document.querySelector(".jobs-search__job-details, .scaffold-layout__detail") ?? document;
+}
+
+export function hasJobDescriptionSurface(): boolean {
+  const root = jobDetailRoot();
+  return JOB_DESCRIPTION_SELECTORS.some((selector) => (root.querySelector<HTMLElement>(selector)?.innerText.length ?? 0) > 300);
+}
+
+export function extractJobDescription(): string {
+  const root = jobDetailRoot();
+  const text = JOB_DESCRIPTION_SELECTORS.map((selector) => root.querySelector<HTMLElement>(selector)?.innerText ?? "").find((value) => value.length > 300);
+  const fallback = root !== document && root instanceof HTMLElement ? root.innerText : document.body.innerText;
+  return (text ?? fallback).slice(0, 12000);
 }
 
 function extractJobLocation(): string {
@@ -678,7 +671,7 @@ function detectWorkMode(): Application["workMode"] {
   return "";
 }
 
-function getPageContext(): PageContext {
+export function getPageContext(): PageContext {
   const vendorContext = getVendorPageContext();
   if (vendorContext) return vendorContext;
 
@@ -757,15 +750,14 @@ function getComeetPageContext(): PageContext {
 
 function getLinkedInPageContext(): PageContext {
   const title = cleanTitle(document.title);
-  const headings = visibleHeadings();
+  const root = jobDetailRoot();
   const role = firstUseful([
     findTextBySelectors([
       ".job-details-jobs-unified-top-card__job-title",
       ".jobs-unified-top-card__job-title",
       "[data-test-job-title]",
       "h1"
-    ]),
-    headings.find((heading) => !/easy apply|apply/i.test(heading)),
+    ], root),
     extractRoleFromTitle(title)
   ]);
   const company = firstUseful([
@@ -774,7 +766,7 @@ function getLinkedInPageContext(): PageContext {
       ".jobs-unified-top-card__company-name",
       "[data-test-job-company-name]",
       "a[href*='/company/']"
-    ]),
+    ], root),
     extractCompanyFromTitle(title)
   ]);
 
@@ -819,7 +811,7 @@ function getIndeedPageContext(): PageContext {
   };
 }
 
-function watchSubmit(): void {
+export function watchSubmit(): void {
   document.addEventListener(
     "click",
     (event) => {
@@ -871,17 +863,15 @@ function requestTrackCurrentApplication(): void {
   queueTrackCurrentApplication();
 }
 
-function queueTrackCurrentApplication(): PendingApplication {
+export function buildCurrentApplication(status: Application["status"]): Application {
   const context = getPageContext();
-  const key = `${context.source}|${context.company}|${context.role}|${canonicalJobUrl(context.url)}`;
-
-  const application: Application = {
+  return {
     company: context.company,
     role: context.role,
     jobUrl: context.url,
     source: context.source,
     dateApplied: new Date().toISOString(),
-    status: "Applied",
+    status,
     location: extractJobLocation(),
     workMode: detectWorkMode(),
     jobDescription: extractJobDescription().slice(0, 5000),
@@ -891,7 +881,11 @@ function queueTrackCurrentApplication(): PendingApplication {
     notes: "",
     upwork: context.source === "Upwork" ? extractUpworkProposalDetails() : undefined
   };
+}
 
+export function queueTrackCurrentApplication(): PendingApplication {
+  const application = buildCurrentApplication("Applied");
+  const key = `${application.source}|${application.company}|${application.role}|${canonicalJobUrl(application.jobUrl)}`;
   const pending: PendingApplication = {
     id: key,
     application,
@@ -899,23 +893,9 @@ function queueTrackCurrentApplication(): PendingApplication {
   };
   if (!loggedSubmissionKeys.has(key)) {
     loggedSubmissionKeys.add(key);
-    void chrome.runtime.sendMessage({ kind: "OPEN_TRACKER_PASTE", pending } satisfies ExtensionMessage);
+    void chrome.runtime.sendMessage({ kind: "APPLICATION_SUBMITTED", pending } satisfies ExtensionMessage);
   }
   return pending;
-}
-
-function canonicalJobUrl(url: string): string {
-  try {
-    const parsed = new URL(url);
-    const jobId =
-      parsed.searchParams.get("currentJobId") ||
-      parsed.searchParams.get("jk") ||
-      parsed.searchParams.get("jobKey") ||
-      parsed.pathname;
-    return `${parsed.hostname}${jobId}`;
-  } catch {
-    return url;
-  }
 }
 
 function detectSource(hostname: string): string {
@@ -929,7 +909,7 @@ function detectSource(hostname: string): string {
   return "Web";
 }
 
-function extractUpworkProposalDetails(): NonNullable<Application["upwork"]> {
+export function extractUpworkProposalDetails(): NonNullable<Application["upwork"]> {
   const pageText = cleanTitle(document.body?.innerText ?? "");
   const fields = extractFields();
   const bidField = fields.find((field) => /hourly rate|your bid|bid amount|total price/i.test(field.question));
@@ -937,7 +917,8 @@ function extractUpworkProposalDetails(): NonNullable<Application["upwork"]> {
   const proposedAmount = numberFromText(String(bidField?.value ?? ""));
   const boostBid = integerFromText(String(boostField?.value ?? ""));
   const connectsMatch = pageText.match(/(?:requires?|costs?|use(?:s|d)?|send for)\s+(\d+)\s+connects?/i)
-    ?? pageText.match(/(\d+)\s+connects?\s+(?:required|to submit|for this proposal)/i);
+    ?? pageText.match(/(\d+)\s+connects?\s+(?:required|to submit|for this proposal)/i)
+    ?? pageText.match(/\bfor:?\s+(\d+)\s+connects?\b/i);
   const contractType = /fixed[- ]price/i.test(pageText)
     ? "fixed"
     : /hourly|\/\s*hr|per hour/i.test(pageText)
@@ -986,9 +967,9 @@ function visibleHeadings(): string[] {
     .filter((text) => !/career center|apply|application form/i.test(text));
 }
 
-function findTextBySelectors(selectors: string[]): string {
+function findTextBySelectors(selectors: string[], root: ParentNode = document): string {
   for (const selector of selectors) {
-    const text = Array.from(document.querySelectorAll<HTMLElement>(selector))
+    const text = Array.from(root.querySelectorAll<HTMLElement>(selector))
       .filter(isVisible)
       .map((el) => cleanTitle(el.innerText || el.textContent || ""))
       .find(Boolean);

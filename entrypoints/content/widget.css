@@ -1,0 +1,682 @@
+.jtRoot {
+  all: initial;
+  --jt-bg: #fffaf2;
+  --jt-surface: #f6f2ea;
+  --jt-text: #101820;
+  --jt-muted: #51606d;
+  --jt-border: #1f2a33;
+  --jt-accent: #27745f;
+  --jt-accent-text: #fffaf2;
+  --jt-warn-bg: #fff1c9;
+  --jt-warn-border: #b87918;
+  --jt-warn-text: #71480c;
+  --jt-error: #a3341f;
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 2147483646;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+  font-family: "Aptos", "Segoe UI", sans-serif;
+  color: var(--jt-text);
+}
+
+.jtRoot[data-theme="dark"] {
+  --jt-bg: #1a232c;
+  --jt-surface: #141c24;
+  --jt-text: #f0ead9;
+  --jt-muted: #9aa8b5;
+  --jt-border: #3a4854;
+  --jt-accent: #2f8a70;
+  --jt-accent-text: #f0ead9;
+  --jt-warn-bg: #513913;
+  --jt-warn-border: #b87918;
+  --jt-warn-text: #ffd98b;
+  --jt-error: #f08a72;
+}
+
+.jtRoot *,
+.jtRoot *::before,
+.jtRoot *::after {
+  box-sizing: border-box;
+  font-family: inherit;
+}
+
+.jtFab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  border: 1px solid var(--jt-border);
+  border-radius: 50%;
+  background: var(--jt-accent);
+  color: var(--jt-accent-text);
+  font-size: 15px;
+  font-weight: 900;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(16, 24, 32, 0.35);
+}
+
+.jtFabDot {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--jt-bg);
+  border-radius: 50%;
+  background: #dc2626;
+}
+
+.jtDueBanner {
+  border: 1px solid var(--jt-warn-border);
+  border-radius: 7px;
+  background: var(--jt-warn-bg);
+  color: var(--jt-warn-text);
+  padding: 7px 9px;
+  font-size: 11px;
+  font-weight: 800;
+  text-align: left;
+  cursor: pointer;
+}
+
+.jtDueBannerActive {
+  border-width: 2px;
+}
+
+.jtFabHigh {
+  background: #27745f;
+}
+
+.jtFabMid {
+  background: #b87918;
+}
+
+.jtFabLow {
+  background: #51606d;
+}
+
+.jtDrawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(400px, 100vw);
+  height: 100vh;
+  border-left: 1px solid var(--jt-border);
+  background: var(--jt-bg);
+  padding: 14px;
+  box-shadow: -8px 0 26px rgba(16, 24, 32, 0.3);
+  animation: jtDrawerIn 180ms ease-out;
+}
+
+@keyframes jtDrawerIn {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.jtDrawerBody {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
+}
+
+/* Nested flex/grid items default to min-width:auto, so any nowrap text would
+   force the whole drawer wider than its 400px; let everything shrink instead. */
+.jtDrawerBody * {
+  min-width: 0;
+}
+
+.jtDrawerFooter {
+  flex-shrink: 0;
+  border-top: 1px solid var(--jt-border);
+  padding-top: 10px;
+  display: grid;
+  gap: 6px;
+}
+
+.jtTrackForm {
+  display: grid;
+  gap: 5px;
+}
+
+.jtTrackForm label {
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.jtTrackForm textarea {
+  width: 100%;
+  resize: vertical;
+  border: 1px solid var(--jt-border);
+  border-radius: 7px;
+  background: var(--jt-surface);
+  color: var(--jt-text);
+  padding: 8px 9px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.jtTrackForm textarea:focus {
+  outline: 2px solid var(--jt-accent);
+  outline-offset: 1px;
+}
+
+.jtTrackForm p {
+  margin: 0;
+  color: var(--jt-muted);
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.jtHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.jtKicker {
+  margin: 0;
+  color: var(--jt-muted);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.jtTitle {
+  margin: 2px 0 0;
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.jtCompany {
+  margin: 2px 0 0;
+  color: var(--jt-muted);
+  font-size: 12px;
+}
+
+.jtIconButton {
+  border: 1px solid var(--jt-border);
+  border-radius: 7px;
+  background: var(--jt-surface);
+  color: var(--jt-text);
+  width: 26px;
+  height: 26px;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.jtDemoBadge {
+  margin: 0;
+  justify-self: start;
+  border: 1px solid var(--jt-warn-border);
+  border-radius: 999px;
+  background: var(--jt-warn-bg);
+  color: var(--jt-warn-text);
+  padding: 3px 8px;
+  font-size: 9px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.jtMuted {
+  margin: 0;
+  color: var(--jt-muted);
+  font-size: 12px;
+}
+
+.jtError {
+  margin: 0;
+  color: var(--jt-error);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.jtMatch {
+  display: grid;
+  gap: 10px;
+}
+
+.jtScoreRow {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.jtScore {
+  font-size: 30px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.jtScoreLabel {
+  color: var(--jt-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.jtChipGroup {
+  display: grid;
+  gap: 5px;
+}
+
+.jtChipHeading {
+  margin: 0;
+  color: var(--jt-muted);
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.jtChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.jtChip {
+  display: inline-flex;
+  border: 1px solid var(--jt-border);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.jtChipMatched {
+  border-color: #27745f;
+  background: rgba(39, 116, 95, 0.14);
+  color: var(--jt-text);
+}
+
+.jtChipMissing {
+  border-color: var(--jt-warn-border);
+  background: var(--jt-warn-bg);
+  color: var(--jt-warn-text);
+}
+
+.jtChipAdd {
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.jtChipAdd:hover {
+  border-color: var(--jt-accent);
+  color: var(--jt-text);
+}
+
+.jtTabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--jt-border);
+  padding-bottom: 6px;
+}
+
+.jtTab {
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: none;
+  color: var(--jt-muted);
+  padding: 5px 9px;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.jtTabActive {
+  border-color: var(--jt-border);
+  background: var(--jt-surface);
+  color: var(--jt-text);
+}
+
+.jtTextarea {
+  width: 100%;
+  border: 1px solid var(--jt-border);
+  border-radius: 7px;
+  background: var(--jt-surface);
+  color: var(--jt-text);
+  padding: 8px;
+  font-size: 12px;
+  resize: vertical;
+}
+
+.jtField {
+  display: grid;
+  gap: 3px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--jt-muted);
+}
+
+.jtField input,
+.jtField select {
+  border: 1px solid var(--jt-border);
+  border-radius: 7px;
+  background: var(--jt-surface);
+  color: var(--jt-text);
+  padding: 6px 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.jtReviewList {
+  display: grid;
+  gap: 6px;
+}
+
+.jtReviewItem {
+  display: flex;
+  gap: 8px;
+  border: 1px solid var(--jt-border);
+  border-radius: 7px;
+  background: var(--jt-surface);
+  padding: 7px 8px;
+  font-size: 11px;
+}
+
+.jtReviewItem span {
+  flex-shrink: 0;
+  font-weight: 900;
+  text-transform: uppercase;
+  font-size: 9px;
+  color: var(--jt-warn-text);
+}
+
+.jtReviewItem strong {
+  display: block;
+  font-size: 11px;
+}
+
+.jtReviewItem p {
+  margin: 2px 0 0;
+  color: var(--jt-muted);
+}
+
+.jtReview-missing span {
+  color: var(--jt-error);
+}
+
+.jtAnalysis {
+  display: grid;
+  gap: 8px;
+  border-top: 1px solid var(--jt-border);
+  padding-top: 8px;
+}
+
+.jtAnalysisText {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.jtList {
+  margin: 0;
+  padding-left: 16px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.jtFooter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.jtButton {
+  border: 1px solid var(--jt-border);
+  border-radius: 7px;
+  background: var(--jt-accent);
+  color: var(--jt-accent-text);
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.jtButton:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.jtButtonGhost {
+  border: 1px solid var(--jt-border);
+  border-radius: 7px;
+  background: var(--jt-surface);
+  color: var(--jt-text);
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.jtTracked {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--jt-accent);
+}
+
+.jtNotice {
+  margin: 0;
+  color: var(--jt-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.jtStatRow {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.jtStat {
+  display: grid;
+  gap: 2px;
+  border: 1px solid var(--jt-border);
+  border-radius: 7px;
+  background: var(--jt-surface);
+  padding: 7px 9px;
+}
+
+.jtStat span {
+  color: var(--jt-muted);
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.jtStat strong {
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.jtRow {
+  display: flex;
+  gap: 6px;
+}
+
+.jtRow > * {
+  flex: 1;
+}
+
+.jtGrid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.jtGrid3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.jtJobRow {
+  display: grid;
+  gap: 6px;
+  border: 1px solid var(--jt-border);
+  border-radius: 7px;
+  background: var(--jt-surface);
+  padding: 8px;
+}
+
+.jtJobRowTop {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.jtJobRowMain {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.jtJobRowTitle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.jtJobRowTitle strong {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jtJobRowTitle select {
+  border: 1px solid var(--jt-border);
+  border-radius: 6px;
+  background: var(--jt-bg);
+  color: var(--jt-text);
+  padding: 2px 4px;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.jtJobRowCompany {
+  margin: 0;
+  color: var(--jt-muted);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jtJobRowActions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.jtMiniButton {
+  border: 1px solid var(--jt-border);
+  border-radius: 6px;
+  background: var(--jt-bg);
+  color: var(--jt-text);
+  padding: 3px 7px;
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.jtMiniButton:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.jtMiniDanger {
+  color: var(--jt-error);
+  border-color: var(--jt-error);
+}
+
+.jtUpworkBadge {
+  justify-self: start;
+  border: 1px solid var(--jt-warn-border);
+  border-radius: 999px;
+  background: var(--jt-warn-bg);
+  color: var(--jt-warn-text);
+  padding: 1px 7px;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.jtJobRowExpanded {
+  display: grid;
+  gap: 6px;
+  border-top: 1px solid var(--jt-border);
+  padding-top: 6px;
+}
+
+.jtProfileSection {
+  border: 1px solid var(--jt-border);
+  border-radius: 7px;
+  background: var(--jt-surface);
+}
+
+.jtProfileSection summary {
+  cursor: pointer;
+  padding: 7px 9px;
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--jt-text);
+  list-style: none;
+}
+
+.jtProfileSection summary::before {
+  content: "+ ";
+  color: var(--jt-muted);
+}
+
+.jtProfileSection[open] summary::before {
+  content: "- ";
+}
+
+.jtProfileSectionBody {
+  display: grid;
+  gap: 6px;
+  padding: 0 9px 9px;
+}
+
+.jtProfileGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.jtFieldWide {
+  grid-column: 1 / -1;
+}
+
+.jtToggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--jt-text);
+  cursor: pointer;
+}

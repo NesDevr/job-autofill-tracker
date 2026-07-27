@@ -1,11 +1,12 @@
-import { DEFAULT_SETTINGS, EMPTY_PROFILE, type DashboardLaunch, type PendingApplication, type Profile, type Settings, type SidebarLaunch } from "./schema";
+import { DEFAULT_SETTINGS, EMPTY_PROFILE, type DashboardLaunch, type PendingApplication, type Profile, type Settings } from "./schema";
 import { DEMO_PROFILE } from "./demo";
 
 const PROFILE_KEY = "profile";
 const SETTINGS_KEY = "settings";
 const PENDING_APPLICATIONS_KEY = "pendingApplications";
 const DASHBOARD_LAUNCH_KEY = "dashboardLaunch";
-const SIDEBAR_LAUNCH_KEY = "sidebarLaunch";
+const APPLICATIONS_REV_KEY = "applicationsRev";
+const DUE_COUNT_KEY = "dueCount";
 
 export async function getProfile(): Promise<Profile> {
   const result = await chrome.storage.local.get([PROFILE_KEY, SETTINGS_KEY]);
@@ -89,6 +90,24 @@ export async function removePendingApplication(id: string): Promise<void> {
   });
 }
 
+// Cross-context change signal for the applications table: Dexie has no events
+// that reach content scripts, so every mutation bumps this counter and drawers
+// listen for it via chrome.storage.onChanged.
+export async function bumpApplicationsRev(): Promise<void> {
+  const result = await chrome.storage.local.get(APPLICATIONS_REV_KEY);
+  const current = (result[APPLICATIONS_REV_KEY] as number | undefined) ?? 0;
+  await chrome.storage.local.set({ [APPLICATIONS_REV_KEY]: current + 1 });
+}
+
+export async function setDueCount(count: number): Promise<void> {
+  await chrome.storage.local.set({ [DUE_COUNT_KEY]: count });
+}
+
+export async function getDueCount(): Promise<number> {
+  const result = await chrome.storage.local.get(DUE_COUNT_KEY);
+  return (result[DUE_COUNT_KEY] as number | undefined) ?? 0;
+}
+
 export async function setDashboardLaunch(launch: DashboardLaunch): Promise<void> {
   await chrome.storage.local.set({ [DASHBOARD_LAUNCH_KEY]: launch });
 }
@@ -100,17 +119,4 @@ export async function getDashboardLaunch(): Promise<DashboardLaunch | undefined>
 
 export async function clearDashboardLaunch(): Promise<void> {
   await chrome.storage.local.remove(DASHBOARD_LAUNCH_KEY);
-}
-
-export async function setSidebarLaunch(launch: SidebarLaunch): Promise<void> {
-  await chrome.storage.local.set({ [SIDEBAR_LAUNCH_KEY]: launch });
-}
-
-export async function getSidebarLaunch(): Promise<SidebarLaunch | undefined> {
-  const result = await chrome.storage.local.get(SIDEBAR_LAUNCH_KEY);
-  return result[SIDEBAR_LAUNCH_KEY] as SidebarLaunch | undefined;
-}
-
-export async function clearSidebarLaunch(): Promise<void> {
-  await chrome.storage.local.remove(SIDEBAR_LAUNCH_KEY);
 }

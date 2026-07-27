@@ -108,6 +108,8 @@ export type ApplicationStatus =
   | "Rejected"
   | "Ghosted";
 
+export const APPLICATION_STATUSES: ApplicationStatus[] = ["Saved", "Applied", "Screen", "Interview", "Offer", "Rejected", "Ghosted"];
+
 export type CompensationPeriod = "year" | "month" | "hour" | "one-time" | "";
 export type CompensationCurrency = "MXN" | "USD" | "EUR" | "";
 
@@ -157,6 +159,7 @@ export type Application = {
   workMode?: "Remote" | "Hybrid" | "On-site" | "";
   compensation?: Compensation;
   jobDescription?: string;
+  autofillContext?: string;
   resumeVersion?: string;
   answersUsed: Array<{ question: string; answer: string }>;
   notes: string;
@@ -173,11 +176,6 @@ export type PendingApplication = {
 export type DashboardLaunch = {
   tab: "tracker";
   pendingId?: string;
-  createdAt: string;
-};
-
-export type SidebarLaunch = {
-  pendingId: string;
   createdAt: string;
 };
 
@@ -261,6 +259,7 @@ export type Settings = {
   apiKey: string;
   model: string;
   theme: ThemeMode;
+  cardBadges: boolean;
   enabledSites: {
     greenhouse: boolean;
     lever: boolean;
@@ -274,6 +273,7 @@ export type MapFieldsRequest = {
   fields: FieldDescriptor[];
   jobDescription: string;
   page: PageContext;
+  autofillContext?: string;
 };
 
 export type LogApplicationRequest = {
@@ -291,17 +291,85 @@ export type RemovePendingApplicationRequest = {
   id: string;
 };
 
-export type OpenTrackerPasteRequest = {
-  kind: "OPEN_TRACKER_PASTE";
-  pending: PendingApplication;
-};
-
 export type AutofillCurrentFormRequest = {
   kind: "AUTOFILL_CURRENT_FORM";
+  autofillContext?: string;
 };
 
 export type TrackCurrentApplicationRequest = {
   kind: "TRACK_CURRENT_APPLICATION";
+};
+
+export type GetTrackedJobRequest = {
+  kind: "GET_TRACKED_JOB";
+  url: string;
+};
+
+export type OpenDashboardRequest = {
+  kind: "OPEN_DASHBOARD";
+  pendingId?: string;
+};
+
+export type AiJobFitRequest = {
+  kind: "AI_JOB_FIT";
+  jobDescription: string;
+  page: PageContext;
+};
+
+export type AiDraftAnswerRequest = {
+  kind: "AI_DRAFT_ANSWER";
+  question: string;
+};
+
+export type AutofillTabRequest = {
+  kind: "AUTOFILL_TAB";
+  autofillContext?: string;
+};
+
+export type ApplicationSubmittedRequest = {
+  kind: "APPLICATION_SUBMITTED";
+  pending: PendingApplication;
+};
+
+export type ShowTrackConfirmRequest = {
+  kind: "SHOW_TRACK_CONFIRM";
+  pending: PendingApplication;
+};
+
+export type UpdateApplicationRequest = {
+  kind: "UPDATE_APPLICATION";
+  id: number;
+  patch: Partial<Application>;
+};
+
+export type ListApplicationsRequest = {
+  kind: "LIST_APPLICATIONS";
+};
+
+export type DeleteApplicationRequest = {
+  kind: "DELETE_APPLICATION";
+  id: number;
+};
+
+export type AiDraftApplicationRequest = {
+  kind: "AI_DRAFT_APPLICATION";
+  postingText: string;
+  pageUrl: string;
+};
+
+export type AiEnrichProfileRequest = {
+  kind: "AI_ENRICH_PROFILE";
+  text: string;
+};
+
+export type RememberAnswerRequest = {
+  kind: "REMEMBER_ANSWER";
+  question: string;
+  answer: string;
+};
+
+export type ToggleWidgetRequest = {
+  kind: "TOGGLE_WIDGET";
 };
 
 export type PageContext = {
@@ -317,9 +385,22 @@ export type ExtensionMessage =
   | LogApplicationRequest
   | QueuePendingApplicationRequest
   | RemovePendingApplicationRequest
-  | OpenTrackerPasteRequest
   | AutofillCurrentFormRequest
-  | TrackCurrentApplicationRequest;
+  | TrackCurrentApplicationRequest
+  | GetTrackedJobRequest
+  | OpenDashboardRequest
+  | AiJobFitRequest
+  | AiDraftAnswerRequest
+  | AutofillTabRequest
+  | ApplicationSubmittedRequest
+  | ShowTrackConfirmRequest
+  | UpdateApplicationRequest
+  | ListApplicationsRequest
+  | DeleteApplicationRequest
+  | AiDraftApplicationRequest
+  | AiEnrichProfileRequest
+  | RememberAnswerRequest
+  | ToggleWidgetRequest;
 
 export const EMPTY_PROFILE: Profile = {
   identity: {
@@ -391,6 +472,7 @@ export const DEFAULT_SETTINGS: Settings = {
   apiKey: "",
   model: "gpt-5.4-mini",
   theme: "light",
+  cardBadges: true,
   enabledSites: {
     greenhouse: true,
     lever: true,
