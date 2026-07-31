@@ -16,9 +16,10 @@ export function isAllowedJobPage(): boolean {
     host.endsWith("lever.co") ||
     host.includes("ashbyhq.com") ||
     host.includes("comeet.co") ||
+    host.includes("icims.com") ||
     host.endsWith("upwork.com") ||
-    (host.endsWith("linkedin.com") && path.includes("/jobs")) ||
-    (host.endsWith("indeed.com") && /job|viewjob|apply/.test(path)) ||
+    host.endsWith("linkedin.com") ||
+    host.endsWith("indeed.com") ||
     hasApplicationSurface()
   );
 }
@@ -57,6 +58,7 @@ function isJobFrameUrl(src: string): boolean {
       host.includes("greenhouse.io") ||
       host.includes("lever.co") ||
       host.includes("ashbyhq.com") ||
+      host.includes("icims.com") ||
       (host.includes("linkedin.com") && path.includes("/jobs"))
     );
   } catch {
@@ -64,17 +66,17 @@ function isJobFrameUrl(src: string): boolean {
   }
 }
 
-export async function fillCurrentForm(autofillContext?: string): Promise<{ ok: true; filled: number; resumeOpened: boolean; review: AutofillReviewItem[] }> {
+export async function fillCurrentForm(): Promise<{ ok: true; filled: number; resumeOpened: boolean; review: AutofillReviewItem[] }> {
   const profile = await getProfile();
   const review = new Map<string, AutofillReviewItem>();
   const firstFields = extractFields();
-  await fillPass(firstFields, profile, review, autofillContext);
+  await fillPass(firstFields, profile, review);
 
   await wait(200);
   const initialQuestions = new Set(firstFields.map((field) => field.question));
   const secondFields = extractFields();
   const revealedFields = secondFields.filter((field) => !initialQuestions.has(field.question));
-  if (revealedFields.length > 0) await fillPass(revealedFields, profile, review, autofillContext);
+  if (revealedFields.length > 0) await fillPass(revealedFields, profile, review);
 
   for (const field of extractFields()) {
     if (review.has(fieldKey(field))) continue;
@@ -101,7 +103,7 @@ export async function fillCurrentForm(autofillContext?: string): Promise<{ ok: t
   };
 }
 
-async function fillPass(fields: FieldDescriptor[], profile: Profile, review: Map<string, AutofillReviewItem>, autofillContext?: string): Promise<void> {
+async function fillPass(fields: FieldDescriptor[], profile: Profile, review: Map<string, AutofillReviewItem>): Promise<void> {
   const fieldsToMap = fields.filter((field) => {
     const target = fieldRefs.get(field.id);
     if (!target) return false;
@@ -126,8 +128,7 @@ async function fillPass(fields: FieldDescriptor[], profile: Profile, review: Map
     kind: "MAP_FIELDS",
     fields: fieldsToMap,
     jobDescription: extractJobDescription(),
-    page: getPageContext(),
-    autofillContext
+    page: getPageContext()
   };
   const response = await chrome.runtime.sendMessage(request);
   if (!response?.ok) throw new Error(response?.error ?? "Mapping failed.");
@@ -904,6 +905,7 @@ function detectSource(hostname: string): string {
   if (hostname.includes("greenhouse")) return "Greenhouse";
   if (hostname.includes("lever")) return "Lever";
   if (hostname.includes("ashby")) return "Ashby";
+  if (hostname.includes("icims")) return "iCIMS";
   if (hostname.includes("linkedin")) return "LinkedIn";
   if (hostname.includes("indeed")) return "Indeed";
   return "Web";

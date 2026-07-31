@@ -1,4 +1,4 @@
-import { analyzeJobFit, draftApplicationFromJobPosting, draftFieldFills, draftSingleAnswer, enrichProfileFromText } from "../lib/ai";
+import { analyzeJobFit, draftApplicationFromJobPosting, draftSingleAnswer, enrichProfileFromText } from "../lib/ai";
 import { db } from "../lib/db";
 import { createDemoApplications } from "../lib/demo";
 import { canonicalJobUrl, isFollowUpDue, localTodayISO } from "../lib/jobs";
@@ -86,7 +86,19 @@ async function handleMessage(message: ExtensionMessage, sender: chrome.runtime.M
 
   if (message.kind === "AUTOFILL_TAB") {
     if (sender.tab?.id === undefined) throw new Error("Autofill must be requested from a page tab.");
-    return await sendAutofillToTab(sender.tab.id, message.autofillContext);
+    return await sendAutofillToTab(sender.tab.id);
+  }
+
+  if (message.kind === "AUTOFILL_ACTIVE_TAB") {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tab?.id === undefined) throw new Error("No active page tab was found.");
+    return await sendAutofillToTab(tab.id);
+  }
+
+  if (message.kind === "OPEN_WIDGET_ACTIVE_TAB") {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tab?.id === undefined) throw new Error("No active page tab was found.");
+    return await sendMessageToTabWithInjection(tab.id, { kind: "TOGGLE_WIDGET" } satisfies ExtensionMessage);
   }
 
   if (message.kind === "UPDATE_APPLICATION") {
@@ -109,7 +121,7 @@ async function handleMessage(message: ExtensionMessage, sender: chrome.runtime.M
   }
 
   if (message.kind === "AI_DRAFT_APPLICATION") {
-    const draft = await draftApplicationFromJobPosting(message.postingText, await getSettings(), message.pageUrl);
+    const draft = await draftApplicationFromJobPosting(message.postingText, await getSettings());
     return { ok: true, draft };
   }
 
@@ -180,28 +192,18 @@ async function handleMessage(message: ExtensionMessage, sender: chrome.runtime.M
         continue;
       }
     }
-    const mappedIds = new Set(fills.map((fill) => fill.id));
-    const unresolved = message.fields.filter((field) => !mappedIds.has(field.id));
-    if (message.autofillContext?.trim() && unresolved.length > 0) {
-      fills.push(
-        ...(await draftFieldFills(
-          unresolved,
-          message.jobDescription,
-          message.page,
-          message.autofillContext,
-          profile,
-          settings
-        ))
-      );
-    }
     return { ok: true, fills };
   }
 
   throw new Error(`Unexpected message for the background worker: ${message.kind}`);
 }
 
-async function sendAutofillToTab(tabId: number, autofillContext?: string): Promise<unknown> {
-  const request = { kind: "AUTOFILL_CURRENT_FORM", autofillContext } satisfies ExtensionMessage;
+async function sendAutofillToTab(tabId: number): Promise<unknown> {
+  const request = { kind: "AUTOFILL_CURRENT_FORM" } satisfies ExtensionMessage;
+  return await sendMessageToTabWithInjection(tabId, request);
+}
+
+async function sendMessageToTabWithInjection(tabId: number, request: ExtensionMessage): Promise<unknown> {
   try {
     return await chrome.tabs.sendMessage(tabId, request);
   } catch (error) {

@@ -21,13 +21,13 @@ export default defineContentScript({
   runAt: "document_idle",
   cssInjectionMode: "ui",
   async main(ctx) {
-    if (!isAllowedJobPage()) return;
+    const allowedJobPage = isAllowedJobPage();
 
     // Autofill/submit engine runs in every frame except a top page that only hosts an ATS iframe.
-    if (!isTopPageWithEmbeddedJobForm()) {
+    if (allowedJobPage && !isTopPageWithEmbeddedJobForm()) {
       chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, sendResponse) => {
         if (message.kind === "AUTOFILL_CURRENT_FORM") {
-          fillCurrentForm(message.autofillContext)
+          fillCurrentForm()
             .then(sendResponse)
             .catch((error: unknown) => {
               const detail = error instanceof Error ? error.message : String(error);
@@ -46,7 +46,8 @@ export default defineContentScript({
       watchSubmit();
     }
 
-    // The embedded widget mounts exactly once per tab, in the top frame.
+    // Mount once per tab. Unsupported sites keep the launcher hidden, but the
+    // extension popup can still open the drawer explicitly.
     if (window.self !== window.top) return;
 
     const ui = await createShadowRootUi(ctx, {
@@ -57,7 +58,7 @@ export default defineContentScript({
         const root = createRoot(container);
         root.render(
           <ErrorBoundary>
-            <Widget />
+            <Widget showFab={allowedJobPage} />
           </ErrorBoundary>
         );
         return root;
@@ -68,7 +69,7 @@ export default defineContentScript({
     });
     ui.mount();
 
-    if ((await getSettings()).cardBadges) {
+    if (allowedJobPage && (await getSettings()).cardBadges) {
       initCardBadges(await getProfile());
     }
   }

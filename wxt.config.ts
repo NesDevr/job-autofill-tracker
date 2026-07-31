@@ -11,7 +11,7 @@ export default defineConfig({
     permissions: ["storage", "unlimitedStorage", "activeTab", "downloads", "scripting", "alarms"],
     host_permissions: ["https://*/*", "http://*/*", "https://api.openai.com/*"],
     action: {
-      default_title: "Open dashboard"
+      default_title: "Job Autofill + Tracker"
     },
     commands: {
       "toggle-widget": {
