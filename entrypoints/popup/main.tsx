@@ -64,7 +64,7 @@ function Popup() {
         </div>
       </header>
       <div className="actions">
-        <button className="primary" onClick={() => void autofill()} disabled={busy}>
+        <button onClick={() => void autofill()} disabled={busy}>
           <Wand2 size={17} />
           <span><strong>{busy ? "Autofilling..." : "Autofill current page"}</strong><small>Fill detected application fields</small></span>
         </button>
