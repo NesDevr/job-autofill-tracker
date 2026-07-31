@@ -6,7 +6,7 @@ import { normalizeCompensationCurrency } from "../../lib/compensation";
 import { db } from "../../lib/db";
 import { createDemoApplications, createDemoMemories } from "../../lib/demo";
 import { questionHash } from "../../lib/mapping";
-import { APPLICATION_STATUSES, EMPTY_PROFILE, type AnswerMemory, type Application, type ApplicationStatus, type CompensationCurrency, type CompensationPeriod, type Experience, type PendingApplication, type PersonalProject, type Profile, type Settings, type ThemeMode, type UpworkProposalStatus } from "../../lib/schema";
+import { APPLICATION_STATUSES, EMPTY_PROFILE, type AnswerMemory, type Application, type ApplicationStatus, type CompensationCurrency, type CompensationPeriod, type Experience, type PendingApplication, type PersonalProject, type Profile, type Settings, type ThemeMode, type TrackingEntryMode, type UpworkProposalStatus } from "../../lib/schema";
 import { bumpApplicationsRev, clearDashboardLaunch, getDashboardLaunch, getPendingApplications, getProfile, getSettings, removePendingApplication, saveProfile, saveSettings } from "../../lib/storage";
 import { applyTheme } from "../../lib/theme";
 import { changeUpworkStatus, UPWORK_PROPOSAL_STATUSES, upworkRate, upworkSummary } from "../../lib/upwork";
@@ -436,6 +436,7 @@ function TrackerPanel({
     compensationPeriod: "" as CompensationPeriod
   });
   const [pasteOpen, setPasteOpen] = useState(false);
+  const [upworkOpen, setUpworkOpen] = useState(false);
   const [postingText, setPostingText] = useState("");
   const [parseStatus, setParseStatus] = useState("");
   const [draggedId, setDraggedId] = useState<number | null>(null);
@@ -569,21 +570,20 @@ function TrackerPanel({
     setManualOpen(false);
     setPasteOpen(true);
     setActivePendingId(pending.id);
-    setPostingText(applicationToPasteText(pending.application));
-    setParseStatus("Review or add anything before creating with AI.");
+    setPostingText("");
+    setParseStatus("Paste the job details you want AI to add. Detected page data will not be used.");
   }
 
   async function parsePosting() {
     setParseStatus("Reading posting...");
     try {
       const settings = await getSettings();
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      const draft = await draftApplicationFromJobPosting(postingText, settings, tab?.url ?? "");
+      const draft = await draftApplicationFromJobPosting(postingText, settings);
       const application: Application = {
         id: demoMode ? Math.max(0, ...applications.map((app) => app.id ?? 0)) + 1 : undefined,
         company: draft.company,
         role: draft.role,
-        jobUrl: draft.jobUrl || tab?.url || "",
+        jobUrl: draft.jobUrl,
         source: draft.source || "Pasted",
         dateApplied: new Date().toISOString(),
         status: "Applied",
@@ -620,12 +620,37 @@ function TrackerPanel({
           <Search size={15} />
           <input aria-label="Search applications" placeholder="Search roles or companies" value={query} onChange={(event) => setQuery(event.target.value)} />
         </label>
-        <button onClick={() => setManualOpen(!manualOpen)}>Add</button>
-        <button onClick={() => setPasteOpen(!pasteOpen)}>Paste</button>
+        <button
+          aria-expanded={manualOpen}
+          onClick={() => {
+            setManualOpen(!manualOpen);
+            if (!manualOpen) setPasteOpen(false);
+          }}
+        >
+          <Plus size={14} /> Add manually
+        </button>
+        <button
+          aria-expanded={pasteOpen}
+          onClick={() => {
+            setPasteOpen(!pasteOpen);
+            if (!pasteOpen) setManualOpen(false);
+          }}
+        >
+          <Sparkles size={14} /> Add with AI
+        </button>
+        {upworkStats.count > 0 && (
+          <button
+            aria-controls="upwork-summary"
+            aria-expanded={upworkOpen}
+            onClick={() => setUpworkOpen(!upworkOpen)}
+          >
+            Upwork {upworkStats.count} {upworkOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          </button>
+        )}
         <button className="iconButton" title="Export CSV" onClick={exportCsv}><Download size={16} /></button>
       </div>
-      {upworkStats.count > 0 && (
-        <section className="upworkSummary" aria-label="Upwork proposal performance">
+      {upworkStats.count > 0 && upworkOpen && (
+        <section id="upwork-summary" className="upworkSummary" aria-label="Upwork proposal performance">
           <div><span>Upwork proposals</span><strong>{upworkStats.count}</strong></div>
           <div><span>Connects spent</span><strong>{upworkStats.actualConnects}</strong></div>
           <div><span>Responses</span><strong>{upworkStats.responses} · {upworkRate(upworkStats.responses, upworkStats.count)}</strong></div>
@@ -670,7 +695,7 @@ function TrackerPanel({
       {pasteOpen && (
         <section className="pasteJobPanel">
           <label>
-            <span>Paste job posting or Upwork proposal</span>
+            <span>Paste job posting or Upwork proposal — AI uses only this text</span>
             <textarea rows={8} value={postingText} onChange={(event) => setPostingText(event.target.value)} />
           </label>
           <div className="pasteActions">
@@ -955,28 +980,6 @@ function compensationFromDraft(draft: {
   });
 }
 
-function applicationToPasteText(application: Application): string {
-  return [
-    `Company: ${application.company}`,
-    `Role: ${application.role}`,
-    `Job URL: ${application.jobUrl}`,
-    `Source: ${application.source}`,
-    application.location ? `Location: ${application.location}` : "",
-    application.workMode ? `Work mode: ${application.workMode}` : "",
-    application.compensation?.text ? `Compensation: ${application.compensation.text}` : "",
-    application.upwork ? `Upwork proposal status: ${application.upwork.status}` : "",
-    application.upwork?.contractType ? `Upwork contract type: ${application.upwork.contractType}` : "",
-    application.upwork?.proposedAmount != null ? `Proposed amount: ${application.upwork.proposedAmount} ${application.upwork.currency}` : "",
-    application.upwork?.baseConnects != null ? `Base Connects: ${application.upwork.baseConnects}` : "",
-    application.upwork?.boostBid != null ? `Boost bid: ${application.upwork.boostBid} Connects` : "",
-    application.upwork?.boostCharged != null ? `Boost charged: ${application.upwork.boostCharged} Connects` : "",
-    application.jobDescription ? `Job description:\n${application.jobDescription}` : "",
-    application.answersUsed.length > 0
-      ? `Application answers:\n${application.answersUsed.map((item) => `${item.question}: ${item.answer}`).join("\n")}`
-      : ""
-  ].filter(Boolean).join("\n\n");
-}
-
 function numberOrUndefined(value: string): number | undefined {
   if (!value.trim()) return undefined;
   const parsed = Number(value.replaceAll(",", ""));
@@ -1197,6 +1200,16 @@ function SettingsPanel({ settings, save }: { settings: Settings; save: (settings
         <select value={settings.theme} onChange={(event) => void save({ ...settings, theme: event.target.value as ThemeMode })}>
           <option value="light">Light</option>
           <option value="dark">Dark</option>
+        </select>
+      </label>
+      <label className="field">
+        <span>Default tracking entry</span>
+        <select
+          value={settings.trackingEntryMode}
+          onChange={(event) => void save({ ...settings, trackingEntryMode: event.target.value as TrackingEntryMode })}
+        >
+          <option value="manual">Manual form</option>
+          <option value="ai">Paste text with AI</option>
         </select>
       </label>
       <Field label="OpenAI API key" type="password" value={settings.apiKey} onChange={(value) => void save({ ...settings, apiKey: value })} />

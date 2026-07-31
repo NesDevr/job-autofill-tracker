@@ -457,6 +457,14 @@ textarea:focus {
   padding: 4px 0;
 }
 
+.trackerToolbar > button:not(.iconButton) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
 .searchBox {
   display: flex;
   flex: 1;

@@ -1,7 +1,7 @@
 import { answerHasPlaceholder, rememberAnswer } from "./mapping";
 import { normalizeCompensationCurrency } from "./compensation";
 import { normalizeProfilePhone } from "./profileValues";
-import { EMPTY_PROFILE, type Application, type Compensation, type FieldDescriptor, type FieldFill, type PageContext, type Profile, type Settings, type UpworkProposalDetails } from "./schema";
+import { EMPTY_PROFILE, type Application, type Compensation, type PageContext, type Profile, type Settings, type UpworkProposalDetails } from "./schema";
 
 type OpenAiOutputContent = {
   type: string;
@@ -46,27 +46,6 @@ const singleAnswerSchema = {
 
 const naturalAnswerInstructions =
   "Answer job-application questions in first person using only the candidate facts provided. Sound like a normal, relaxed professional speaking plainly—not a résumé, cover letter, sales pitch, or formal template. Answer the exact question directly. Default to 2–5 short sentences and under 90 words; use more only when the question explicitly asks for detail. Use contractions when natural. Include only the strongest relevant details instead of listing everything. Avoid canned introductions, conclusions, headings, bullet points, corporate clichés, inflated claims, and overly polished wording. Never write TODO, placeholders, bracketed notes, or mention missing profile data. If a fact is unknown, omit it. If no relevant experience is provided, say plainly that you do not have direct experience yet and stop. Never invent tools, employers, years, credentials, metrics, locations, authorization, salary, or availability.";
-
-const fieldFillsSchema = {
-  type: "object",
-  additionalProperties: false,
-  required: ["fills"],
-  properties: {
-    fills: {
-      type: "array",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        required: ["id", "value", "confidence"],
-        properties: {
-          id: { type: "string" },
-          value: { type: "string" },
-          confidence: { type: "number" }
-        }
-      }
-    }
-  }
-};
 
 const profileSchema = {
   type: "object",
@@ -381,49 +360,6 @@ export async function draftSingleAnswer(
   return parsed.answer;
 }
 
-export async function draftFieldFills(
-  fields: FieldDescriptor[],
-  jobDescription: string,
-  page: PageContext,
-  autofillContext: string,
-  profile: Profile,
-  settings: Settings
-): Promise<FieldFill[]> {
-  if (!settings.apiKey) throw new Error("OpenAI API key is required to use the saved autofill context.");
-  if (!autofillContext.trim()) throw new Error("Autofill context is required before drafting form answers.");
-  if (fields.length === 0) return [];
-
-  const text = await createOpenAiJson(settings, {
-    instructions: `${naturalAnswerInstructions} The user-provided applicationContext contains additional facts and preferences for this specific application. Answer only fields that can be supported by candidateFacts or applicationContext; omit every field whose answer is unknown. For select or radio fields, value must exactly match one provided option. Never answer legal attestations, consent, demographic questions, or sensitive identity questions from inference. Return the original field id unchanged.`,
-    input: [
-      {
-        role: "user",
-        content: JSON.stringify({
-          candidateFacts: profileFactsForAi(profile),
-          applicationContext: autofillContext.trim(),
-          job: { company: page.company, role: page.role, source: page.source },
-          jobDescription,
-          fields: fields.map(({ id, question, type, options, required }) => ({ id, question, type, options, required }))
-        })
-      }
-    ],
-    schemaName: "application_field_fills",
-    schema: fieldFillsSchema,
-    maxOutputTokens: 1800
-  });
-
-  const requestedIds = new Set(fields.map((field) => field.id));
-  const parsed = JSON.parse(text) as { fills: Array<{ id: string; value: string; confidence: number }> };
-  return parsed.fills
-    .filter((fill) => requestedIds.has(fill.id) && fill.value.trim() && !answerHasPlaceholder(fill.value))
-    .map((fill) => ({
-      id: fill.id,
-      value: fill.value,
-      source: "ai" as const,
-      confidence: Math.max(0, Math.min(1, fill.confidence))
-    }));
-}
-
 export async function importProfileFromCv(
   fileName: string,
   fileDataUrl: string,
@@ -498,20 +434,18 @@ export async function enrichProfileFromText(
 
 export async function draftApplicationFromJobPosting(
   postingText: string,
-  settings: Settings,
-  pageUrl: string
+  settings: Settings
 ): Promise<JobPostingDraft> {
   if (!settings.apiKey) throw new Error("OpenAI API key is required before parsing a job posting.");
   if (!postingText.trim()) throw new Error("Paste a job posting first.");
 
   const text = await createOpenAiJson(settings, {
     instructions:
-      "Extract a job-tracker entry from unstructured job or proposal text. Use only facts present in the pasted text or provided page URL. Do not invent company, role, location, work mode, compensation, proposal terms, or Connects. If this is Upwork content, set source to Upwork and isUpwork to true; use Private Upwork client only when the text clearly comes from Upwork and no client identity is shown. Extract proposal bid, contract type, base Connects, boost bid, charged boost, and outcome dates only when explicit. A proposal that was just submitted has status Submitted. If this is not Upwork content, set isUpwork false and return empty/null Upwork fields. If compensation is not explicitly present, return compensation as empty text, empty currency, null min, null max, and empty period. Compensation text must preserve exact original wording. Currency must be MXN, USD, EUR, or empty.",
+      "Extract a job-tracker entry using only facts present in the pasted text. Do not use or infer details from the current browser page. Do not invent company, role, URL, location, work mode, compensation, proposal terms, or Connects. If this is Upwork content, set source to Upwork and isUpwork to true; use Private Upwork client only when the text clearly comes from Upwork and no client identity is shown. Extract proposal bid, contract type, base Connects, boost bid, charged boost, and outcome dates only when explicit. A proposal that was just submitted has status Submitted. If this is not Upwork content, set isUpwork false and return empty/null Upwork fields. If compensation is not explicitly present, return compensation as empty text, empty currency, null min, null max, and empty period. Compensation text must preserve exact original wording. Currency must be MXN, USD, EUR, or empty.",
     input: [
       {
         role: "user",
         content: JSON.stringify({
-          pageUrl,
           postingText,
           allowedWorkModes: ["Remote", "Hybrid", "On-site", ""]
         })

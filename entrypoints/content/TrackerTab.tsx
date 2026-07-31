@@ -105,15 +105,14 @@ export default function TrackerTab({ demoMode, onOpenDashboard }: { demoMode: bo
     try {
       const draftResponse = await chrome.runtime.sendMessage({
         kind: "AI_DRAFT_APPLICATION",
-        postingText,
-        pageUrl: location.href
+        postingText
       } satisfies ExtensionMessage);
       if (!draftResponse?.ok) throw new Error(draftResponse?.error ?? "Reading the posting failed.");
       const draft = draftResponse.draft as JobPostingDraft;
       const application: Application = {
         company: draft.company,
         role: draft.role,
-        jobUrl: draft.jobUrl || location.href,
+        jobUrl: draft.jobUrl,
         source: draft.source || "Pasted",
         dateApplied: new Date().toISOString(),
         status: "Applied",

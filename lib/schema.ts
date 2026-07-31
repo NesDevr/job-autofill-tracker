@@ -146,6 +146,7 @@ export type UpworkProposalDetails = {
 };
 
 export type ThemeMode = "light" | "dark";
+export type TrackingEntryMode = "manual" | "ai";
 
 export type Application = {
   id?: number;
@@ -159,7 +160,6 @@ export type Application = {
   workMode?: "Remote" | "Hybrid" | "On-site" | "";
   compensation?: Compensation;
   jobDescription?: string;
-  autofillContext?: string;
   resumeVersion?: string;
   answersUsed: Array<{ question: string; answer: string }>;
   notes: string;
@@ -259,6 +259,7 @@ export type Settings = {
   apiKey: string;
   model: string;
   theme: ThemeMode;
+  trackingEntryMode: TrackingEntryMode;
   cardBadges: boolean;
   enabledSites: {
     greenhouse: boolean;
@@ -273,7 +274,6 @@ export type MapFieldsRequest = {
   fields: FieldDescriptor[];
   jobDescription: string;
   page: PageContext;
-  autofillContext?: string;
 };
 
 export type LogApplicationRequest = {
@@ -293,7 +293,6 @@ export type RemovePendingApplicationRequest = {
 
 export type AutofillCurrentFormRequest = {
   kind: "AUTOFILL_CURRENT_FORM";
-  autofillContext?: string;
 };
 
 export type TrackCurrentApplicationRequest = {
@@ -323,7 +322,14 @@ export type AiDraftAnswerRequest = {
 
 export type AutofillTabRequest = {
   kind: "AUTOFILL_TAB";
-  autofillContext?: string;
+};
+
+export type AutofillActiveTabRequest = {
+  kind: "AUTOFILL_ACTIVE_TAB";
+};
+
+export type OpenWidgetActiveTabRequest = {
+  kind: "OPEN_WIDGET_ACTIVE_TAB";
 };
 
 export type ApplicationSubmittedRequest = {
@@ -354,7 +360,6 @@ export type DeleteApplicationRequest = {
 export type AiDraftApplicationRequest = {
   kind: "AI_DRAFT_APPLICATION";
   postingText: string;
-  pageUrl: string;
 };
 
 export type AiEnrichProfileRequest = {
@@ -392,6 +397,8 @@ export type ExtensionMessage =
   | AiJobFitRequest
   | AiDraftAnswerRequest
   | AutofillTabRequest
+  | AutofillActiveTabRequest
+  | OpenWidgetActiveTabRequest
   | ApplicationSubmittedRequest
   | ShowTrackConfirmRequest
   | UpdateApplicationRequest
@@ -472,6 +479,7 @@ export const DEFAULT_SETTINGS: Settings = {
   apiKey: "",
   model: "gpt-5.4-mini",
   theme: "light",
+  trackingEntryMode: "manual",
   cardBadges: true,
   enabledSites: {
     greenhouse: true,

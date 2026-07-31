@@ -1,19 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { scoreAffinity, type AffinityResult } from "../../lib/affinity";
-import type { JobFitAnalysis } from "../../lib/ai";
+import type { JobFitAnalysis, JobPostingDraft } from "../../lib/ai";
 import { isJobDetailUrl } from "../../lib/jobs";
 import { getDueCount, getProfile, getSettings, saveProfile } from "../../lib/storage";
 import { changeUpworkStatus, UPWORK_PROPOSAL_STATUSES } from "../../lib/upwork";
 import {
-  APPLICATION_STATUSES,
   type Application,
-  type ApplicationStatus,
   type AutofillReviewItem,
   type ExtensionMessage,
   type PageContext,
   type PendingApplication,
   type Profile,
   type Settings,
+  type TrackingEntryMode,
   type UpworkProposalDetails,
   type UpworkProposalStatus
 } from "../../lib/schema";
@@ -40,7 +39,7 @@ const TAB_LABELS: Record<TabId, string> = {
   profile: "Profile"
 };
 
-export default function Widget() {
+export default function Widget({ showFab = true }: { showFab?: boolean } = {}) {
   const [open, setOpen] = useState(false);
   const [profile, setProfile] = useState<Profile>();
   const [settings, setSettings] = useState<Settings>();
@@ -51,7 +50,10 @@ export default function Widget() {
   const [trackNotice, setTrackNotice] = useState("");
   const [saving, setSaving] = useState(false);
   const [trackFormOpen, setTrackFormOpen] = useState(false);
-  const [autofillContext, setAutofillContext] = useState("");
+  const [trackEntryMode, setTrackEntryMode] = useState<TrackingEntryMode>("manual");
+  const [postingText, setPostingText] = useState("");
+  const [trackDraft, setTrackDraft] = useState<Application>();
+  const [readingPosting, setReadingPosting] = useState(false);
   const [pendingConfirm, setPendingConfirm] = useState<PendingApplication>();
   const [activeTab, setActiveTab] = useState<TabId>("autofill");
   const [dueCount, setDueCount] = useState(0);
@@ -140,7 +142,8 @@ export default function Widget() {
 
   useEffect(() => {
     setTrackFormOpen(false);
-    setAutofillContext("");
+    setPostingText("");
+    setTrackDraft(undefined);
   }, [url]);
 
   useEffect(() => {
@@ -156,14 +159,49 @@ export default function Widget() {
     };
   }, [url, open]);
 
+  const readPosting = useCallback(async () => {
+    setReadingPosting(true);
+    setTrackNotice("");
+    try {
+      const response = await chrome.runtime.sendMessage({
+        kind: "AI_DRAFT_APPLICATION",
+        postingText
+      } satisfies ExtensionMessage);
+      if (!response?.ok) throw new Error(response?.error ?? "AI could not read the job text.");
+      const draft = response.draft as JobPostingDraft;
+      setTrackDraft({
+        company: draft.company,
+        role: draft.role,
+        jobUrl: draft.jobUrl,
+        source: draft.source,
+        dateApplied: new Date().toISOString(),
+        status: "Applied",
+        location: draft.location,
+        workMode: draft.workMode,
+        compensation: draft.compensation,
+        jobDescription: draft.jobDescription,
+        answersUsed: [],
+        notes: "",
+        upwork: draft.upwork
+      });
+      setTrackNotice("AI filled the tracker fields. Review them before saving.");
+    } catch (error) {
+      setTrackNotice(error instanceof Error ? error.message : String(error));
+    } finally {
+      setReadingPosting(false);
+    }
+  }, [postingText]);
+
   const trackJob = useCallback(async () => {
+    if (!trackDraft) return;
+    if (!trackDraft.company.trim() || !trackDraft.role.trim()) {
+      setTrackNotice("Company and role are required.");
+      return;
+    }
     setSaving(true);
     setTrackNotice("");
     try {
-      const application = {
-        ...buildCurrentApplication("Applied"),
-        autofillContext: autofillContext.trim() || undefined
-      };
+      const application = { ...trackDraft, status: "Applied" as const };
       const response = await chrome.runtime.sendMessage({ kind: "LOG_APPLICATION", application } satisfies ExtensionMessage);
       if (!response?.ok) throw new Error(response?.error ?? "Tracking failed.");
       if (settings?.demoMode) {
@@ -171,6 +209,8 @@ export default function Widget() {
       } else {
         setTracked(application);
         setTrackFormOpen(false);
+        setPostingText("");
+        setTrackDraft(undefined);
         setTrackNotice("Tracked as Applied.");
       }
     } catch (error) {
@@ -178,7 +218,23 @@ export default function Widget() {
     } finally {
       setSaving(false);
     }
-  }, [autofillContext, settings]);
+  }, [settings, trackDraft]);
+
+  const openTrackForm = () => {
+    const mode = settings?.trackingEntryMode ?? "manual";
+    setTrackEntryMode(mode);
+    setPostingText("");
+    setTrackDraft(mode === "manual" ? emptyTrackingApplication() : undefined);
+    setTrackNotice("");
+    setTrackFormOpen(true);
+  };
+
+  const changeTrackEntryMode = (mode: TrackingEntryMode) => {
+    setTrackEntryMode(mode);
+    setPostingText("");
+    setTrackDraft(mode === "manual" ? emptyTrackingApplication() : undefined);
+    setTrackNotice("");
+  };
 
   const openDashboard = () => {
     void chrome.runtime.sendMessage({ kind: "OPEN_DASHBOARD" } satisfies ExtensionMessage);
@@ -229,6 +285,7 @@ export default function Widget() {
               <TrackConfirm
                 pending={pendingConfirm}
                 demoMode={settings?.demoMode ?? false}
+                defaultMode={settings?.trackingEntryMode ?? "manual"}
                 onDone={(application, notice) => {
                   setPendingConfirm(undefined);
                   if (application) setTracked(application);
@@ -259,7 +316,7 @@ export default function Widget() {
                     )}
                   </>
                 )}
-                {activeTab === "autofill" && <AutofillTab autofillContext={tracked?.autofillContext} />}
+                {activeTab === "autofill" && <AutofillTab />}
                 {activeTab === "answer" && <AnswerTab />}
                 {activeTab === "upwork" && (
                   <UpworkTab
@@ -276,16 +333,23 @@ export default function Widget() {
               <footer className="jtDrawerFooter">
                 {!tracked && trackFormOpen && (
                   <div className="jtTrackForm">
-                    <label htmlFor="jt-autofill-context">Application autofill context</label>
-                    <textarea
-                      id="jt-autofill-context"
-                      value={autofillContext}
-                      onChange={(event) => setAutofillContext(event.target.value)}
-                      placeholder="Add facts or preferences for this application, e.g. why you want the role, availability, or experience to emphasize."
-                      rows={4}
-                      autoFocus
-                    />
-                    <p>AI uses this only for unanswered fields and won’t replace profile data or saved answers.</p>
+                    <TrackingModeSwitch mode={trackEntryMode} onChange={changeTrackEntryMode} />
+                    {trackEntryMode === "ai" && !trackDraft ? (
+                      <>
+                        <label htmlFor="jt-job-posting">Job text for AI</label>
+                        <textarea
+                          id="jt-job-posting"
+                          value={postingText}
+                          onChange={(event) => setPostingText(event.target.value)}
+                          placeholder="Paste the job post or any text you want AI to use to fill the tracker."
+                          rows={5}
+                          autoFocus
+                        />
+                        <p>Only this pasted text is sent to AI. Nothing is read automatically from the current page.</p>
+                      </>
+                    ) : trackDraft ? (
+                      <TrackDraftForm draft={trackDraft} mode={trackEntryMode} onChange={setTrackDraft} />
+                    ) : null}
                   </div>
                 )}
                 <div className="jtFooter">
@@ -293,15 +357,30 @@ export default function Widget() {
                     <p className="jtTracked">Tracked: {tracked.status}</p>
                   ) : trackFormOpen ? (
                     <>
-                      <button className="jtButton" onClick={() => void trackJob()} disabled={saving}>
-                        {saving ? "Saving..." : "Track as applied"}
+                      <button
+                        className="jtButton"
+                        onClick={() => void (trackDraft ? trackJob() : readPosting())}
+                        disabled={saving || readingPosting || (!trackDraft && !postingText.trim())}
+                      >
+                        {saving ? "Saving..." : readingPosting ? "Reading with AI..." : trackDraft ? "Save as applied" : "Fill tracker with AI"}
                       </button>
-                      <button className="jtButtonGhost" onClick={() => setTrackFormOpen(false)} disabled={saving}>
-                        Cancel
+                      <button
+                        className="jtButtonGhost"
+                        onClick={() => {
+                          if (trackEntryMode === "ai" && trackDraft) {
+                            setTrackDraft(undefined);
+                            setTrackNotice("");
+                          } else {
+                            setTrackFormOpen(false);
+                          }
+                        }}
+                        disabled={saving || readingPosting}
+                      >
+                        {trackEntryMode === "ai" && trackDraft ? "Back" : "Cancel"}
                       </button>
                     </>
                   ) : (
-                    <button className="jtButton" onClick={() => setTrackFormOpen(true)}>
+                    <button className="jtButton" onClick={openTrackForm}>
                       Track this job
                     </button>
                   )}
@@ -315,7 +394,7 @@ export default function Widget() {
           )}
         </section>
       )}
-      {!open && (
+      {!open && showFab && (
         <button className={fabClass(score)} onClick={() => setOpen(true)} title="Job Autofill + Tracker">
           {score !== undefined ? score : "JT"}
           {dueCount > 0 && <span className="jtFabDot" title={`${dueCount} follow-ups due`} />}
@@ -449,7 +528,96 @@ function MatchTab({
   );
 }
 
-function AutofillTab({ autofillContext }: { autofillContext?: string }) {
+function emptyTrackingApplication(): Application {
+  return {
+    company: "",
+    role: "",
+    jobUrl: "",
+    source: "Manual",
+    dateApplied: new Date().toISOString(),
+    status: "Applied",
+    location: "",
+    workMode: "",
+    jobDescription: "",
+    answersUsed: [],
+    notes: ""
+  };
+}
+
+function TrackingModeSwitch({ mode, onChange }: { mode: TrackingEntryMode; onChange: (mode: TrackingEntryMode) => void }) {
+  return (
+    <div className="jtModeSwitch" aria-label="Tracking entry mode">
+      <button type="button" className={mode === "manual" ? "jtModeActive" : ""} aria-pressed={mode === "manual"} onClick={() => onChange("manual")}>
+        Manual
+      </button>
+      <button type="button" className={mode === "ai" ? "jtModeActive" : ""} aria-pressed={mode === "ai"} onClick={() => onChange("ai")}>
+        AI paste
+      </button>
+    </div>
+  );
+}
+
+function TrackDraftForm({ draft, mode, onChange }: { draft: Application; mode: TrackingEntryMode; onChange: (draft: Application) => void }) {
+  const update = (patch: Partial<Application>) => onChange({ ...draft, ...patch });
+  return (
+    <div className="jtTrackReview">
+      <div>
+        <p className="jtKicker">{mode === "ai" ? "AI draft" : "Manual entry"}</p>
+        <strong>Review before saving as Applied</strong>
+      </div>
+      <div className="jtGrid2">
+        <label className="jtField">
+          <span>Company</span>
+          <input value={draft.company} onChange={(event) => update({ company: event.target.value })} />
+        </label>
+        <label className="jtField">
+          <span>Role</span>
+          <input value={draft.role} onChange={(event) => update({ role: event.target.value })} />
+        </label>
+      </div>
+      <div className="jtGrid2">
+        <label className="jtField">
+          <span>Source</span>
+          <input value={draft.source} onChange={(event) => update({ source: event.target.value })} />
+        </label>
+        <label className="jtField">
+          <span>Work mode</span>
+          <select value={draft.workMode ?? ""} onChange={(event) => update({ workMode: event.target.value as Application["workMode"] })}>
+            <option value="">Not set</option>
+            <option value="Remote">Remote</option>
+            <option value="Hybrid">Hybrid</option>
+            <option value="On-site">On-site</option>
+          </select>
+        </label>
+      </div>
+      <label className="jtField">
+        <span>Location</span>
+        <input value={draft.location ?? ""} onChange={(event) => update({ location: event.target.value })} />
+      </label>
+      <label className="jtField">
+        <span>Compensation</span>
+        <input
+          value={draft.compensation?.text ?? ""}
+          onChange={(event) => update({
+            compensation: {
+              text: event.target.value,
+              currency: draft.compensation?.currency ?? "",
+              min: draft.compensation?.min,
+              max: draft.compensation?.max,
+              period: draft.compensation?.period ?? ""
+            }
+          })}
+        />
+      </label>
+      <label className="jtField">
+        <span>Job URL</span>
+        <input value={draft.jobUrl} onChange={(event) => update({ jobUrl: event.target.value })} />
+      </label>
+    </div>
+  );
+}
+
+function AutofillTab() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [review, setReview] = useState<AutofillReviewItem[]>([]);
@@ -459,7 +627,7 @@ function AutofillTab({ autofillContext }: { autofillContext?: string }) {
     setBusy(true);
     setError("");
     try {
-      const response = await chrome.runtime.sendMessage({ kind: "AUTOFILL_TAB", autofillContext } satisfies ExtensionMessage);
+      const response = await chrome.runtime.sendMessage({ kind: "AUTOFILL_TAB" } satisfies ExtensionMessage);
       if (!response?.ok) throw new Error(response?.error ?? "Autofill failed.");
       setReview((response.review as AutofillReviewItem[]) ?? []);
       setFilled(response.filled as number);
@@ -711,30 +879,70 @@ function NumberField({ label, value, onChange }: { label: string; value: number 
 function TrackConfirm({
   pending,
   demoMode,
+  defaultMode,
   onDone
 }: {
   pending: PendingApplication;
   demoMode: boolean;
+  defaultMode: TrackingEntryMode;
   onDone: (application: Application | undefined, notice: string) => void;
 }) {
-  const [company, setCompany] = useState(pending.application.company);
-  const [role, setRole] = useState(pending.application.role);
-  const [status, setStatus] = useState<ApplicationStatus>(pending.application.status);
-  const [busy, setBusy] = useState(false);
+  const [mode, setMode] = useState<TrackingEntryMode>(defaultMode);
+  const [postingText, setPostingText] = useState("");
+  const [draft, setDraft] = useState<Application | undefined>(() => defaultMode === "manual" ? emptyTrackingApplication() : undefined);
+  const [reading, setReading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  const confirm = async () => {
-    setBusy(true);
+  const readPosting = async () => {
+    setReading(true);
     setError("");
     try {
-      const application: Application = { ...pending.application, company, role, status };
+      const response = await chrome.runtime.sendMessage({
+        kind: "AI_DRAFT_APPLICATION",
+        postingText
+      } satisfies ExtensionMessage);
+      if (!response?.ok) throw new Error(response?.error ?? "AI could not read the job text.");
+      const result = response.draft as JobPostingDraft;
+      setDraft({
+        company: result.company,
+        role: result.role,
+        jobUrl: result.jobUrl,
+        source: result.source,
+        dateApplied: new Date().toISOString(),
+        status: "Applied",
+        location: result.location,
+        workMode: result.workMode,
+        compensation: result.compensation,
+        jobDescription: result.jobDescription,
+        answersUsed: [],
+        notes: "",
+        upwork: result.upwork
+      });
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setReading(false);
+    }
+  };
+
+  const confirm = async () => {
+    if (!draft) return;
+    if (!draft.company.trim() || !draft.role.trim()) {
+      setError("Company and role are required.");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      const application: Application = { ...draft, status: "Applied" };
       const logResponse = await chrome.runtime.sendMessage({ kind: "LOG_APPLICATION", application } satisfies ExtensionMessage);
       if (!logResponse?.ok) throw new Error(logResponse?.error ?? "Tracking failed.");
       await chrome.runtime.sendMessage({ kind: "REMOVE_PENDING_APPLICATION", id: pending.id } satisfies ExtensionMessage);
       onDone(demoMode ? undefined : application, demoMode ? "Demo mode: not saved." : "Saved to tracker.");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
-      setBusy(false);
+      setSaving(false);
     }
   };
 
@@ -743,31 +951,50 @@ function TrackConfirm({
     onDone(undefined, "");
   };
 
+  const changeMode = (nextMode: TrackingEntryMode) => {
+    setMode(nextMode);
+    setPostingText("");
+    setDraft(nextMode === "manual" ? emptyTrackingApplication() : undefined);
+    setError("");
+  };
+
   return (
     <div className="jtMatch">
-      <p className="jtChipHeading">Application detected - save it?</p>
-      <label className="jtField">
-        <span>Company</span>
-        <input value={company} onChange={(event) => setCompany(event.target.value)} />
-      </label>
-      <label className="jtField">
-        <span>Role</span>
-        <input value={role} onChange={(event) => setRole(event.target.value)} />
-      </label>
-      <label className="jtField">
-        <span>Status</span>
-        <select value={status} onChange={(event) => setStatus(event.target.value as ApplicationStatus)}>
-          {APPLICATION_STATUSES.map((item) => (
-            <option key={item}>{item}</option>
-          ))}
-        </select>
-      </label>
+      <p className="jtChipHeading">Application detected</p>
+      <TrackingModeSwitch mode={mode} onChange={changeMode} />
+      {mode === "ai" && !draft ? (
+        <>
+          <label className="jtField">
+            <span>Paste job details for AI</span>
+            <textarea
+              className="jtTextarea"
+              rows={7}
+              value={postingText}
+              onChange={(event) => setPostingText(event.target.value)}
+              placeholder="Paste the job post or the details you want saved."
+              autoFocus
+            />
+          </label>
+          <p className="jtMuted">Only your pasted text is used. Detected page data is not added to the tracker.</p>
+        </>
+      ) : draft ? (
+        <TrackDraftForm draft={draft} mode={mode} onChange={setDraft} />
+      ) : null}
       {error && <p className="jtError">{error}</p>}
       <div className="jtFooter">
-        <button className="jtButton" onClick={() => void confirm()} disabled={busy}>
-          {busy ? "Saving..." : "Save to tracker"}
+        <button
+          className="jtButton"
+          onClick={() => void (draft ? confirm() : readPosting())}
+          disabled={saving || reading || (!draft && !postingText.trim())}
+        >
+          {saving ? "Saving..." : reading ? "Reading with AI..." : draft ? "Save as applied" : "Fill tracker with AI"}
         </button>
-        <button className="jtButtonGhost" onClick={() => void dismiss()} disabled={busy}>
+        {mode === "ai" && draft && (
+          <button className="jtButtonGhost" onClick={() => setDraft(undefined)} disabled={saving}>
+            Back
+          </button>
+        )}
+        <button className="jtButtonGhost" onClick={() => void dismiss()} disabled={saving || reading}>
           Dismiss
         </button>
       </div>

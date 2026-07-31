@@ -152,6 +152,9 @@
 .jtTrackForm {
   display: grid;
   gap: 5px;
+  max-height: 52vh;
+  overflow-y: auto;
+  padding: 2px 3px 2px 0;
 }
 
 .jtTrackForm label {
@@ -181,6 +184,45 @@
   color: var(--jt-muted);
   font-size: 10px;
   line-height: 1.35;
+}
+
+.jtTrackReview {
+  display: grid;
+  gap: 8px;
+}
+
+.jtTrackReview > div:first-child {
+  display: grid;
+  gap: 2px;
+  border-bottom: 1px solid var(--jt-border);
+  padding-bottom: 7px;
+  font-size: 12px;
+}
+
+.jtModeSwitch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px;
+  border: 1px solid var(--jt-border);
+  border-radius: 8px;
+  background: var(--jt-surface);
+  padding: 3px;
+}
+
+.jtModeSwitch button {
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--jt-muted);
+  padding: 6px 8px;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.jtModeSwitch button.jtModeActive {
+  background: var(--jt-accent);
+  color: var(--jt-accent-text);
 }
 
 .jtHeader {
