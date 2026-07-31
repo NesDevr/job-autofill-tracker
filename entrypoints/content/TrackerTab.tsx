@@ -28,7 +28,7 @@ const emptyManualDraft = {
   compensationPeriod: "" as CompensationPeriod
 };
 
-export default function TrackerTab({ demoMode, onOpenDashboard }: { demoMode: boolean; onOpenDashboard: () => void }) {
+export default function TrackerTab({ demoMode, onOpenDashboard }: { demoMode: boolean; onOpenDashboard: (applicationId?: number) => void }) {
   const [applications, setApplications] = useState<Application[]>([]);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<TrackerStatusFilter>("All");
@@ -335,7 +335,7 @@ export default function TrackerTab({ demoMode, onOpenDashboard }: { demoMode: bo
           key={app.id ?? `${app.company}-${app.role}-${app.dateApplied}`}
           onUpdate={(patch) => void updateApplication(app, patch)}
           onDelete={() => void deleteApplication(app)}
-          onOpenDashboard={onOpenDashboard}
+          onOpenDashboard={() => onOpenDashboard(app.id)}
         />
       ))}
       {notice && <p className="jtNotice">{notice}</p>}
@@ -420,6 +420,55 @@ function TrackedJob({
       </div>
       {expanded && (
         <div className="jtJobRowExpanded">
+          <dl className="jtJobDetails">
+            <div>
+              <dt>Source</dt>
+              <dd>{app.source || "Not set"}</dd>
+            </div>
+            <div>
+              <dt>Applied</dt>
+              <dd>{app.dateApplied ? app.dateApplied.slice(0, 10) : "Not set"}</dd>
+            </div>
+            <div>
+              <dt>Location</dt>
+              <dd>{app.location || "Not set"}</dd>
+            </div>
+            <div>
+              <dt>Work mode</dt>
+              <dd>{app.workMode || "Not set"}</dd>
+            </div>
+            <div className="jtJobDetailWide">
+              <dt>Compensation</dt>
+              <dd>{formatCompensation(app.compensation)}</dd>
+            </div>
+            <div>
+              <dt>Resume</dt>
+              <dd>{app.resumeVersion || "Not set"}</dd>
+            </div>
+            <div className="jtJobDetailWide">
+              <dt>Job URL</dt>
+              <dd>
+                {app.jobUrl ? <a href={app.jobUrl} target="_blank" rel="noreferrer">{app.jobUrl}</a> : "Not set"}
+              </dd>
+            </div>
+          </dl>
+          {app.jobDescription && (
+            <section className="jtJobTextBlock">
+              <strong>Job description</strong>
+              <p>{app.jobDescription}</p>
+            </section>
+          )}
+          {app.answersUsed.length > 0 && (
+            <section className="jtJobTextBlock">
+              <strong>Application answers</strong>
+              {app.answersUsed.map((answer, index) => (
+                <div className="jtJobAnswer" key={`${answer.question}-${index}`}>
+                  <span>{answer.question}</span>
+                  <p>{answer.answer}</p>
+                </div>
+              ))}
+            </section>
+          )}
           <label className="jtField">
             <span>Follow-up date</span>
             <input
@@ -461,6 +510,36 @@ function TrackedJob({
                   />
                 </label>
               </div>
+              <dl className="jtJobDetails">
+                <div>
+                  <dt>Contract type</dt>
+                  <dd>{app.upwork.contractType || "Not set"}</dd>
+                </div>
+                <div>
+                  <dt>Proposed amount</dt>
+                  <dd>{app.upwork.proposedAmount == null ? "Not set" : `${app.upwork.currency || ""} ${app.upwork.proposedAmount}`.trim()}</dd>
+                </div>
+                <div>
+                  <dt>Boost bid</dt>
+                  <dd>{app.upwork.boostBid ?? "Not set"}</dd>
+                </div>
+                <div>
+                  <dt>Responded</dt>
+                  <dd>{app.upwork.respondedAt?.slice(0, 10) || "Not set"}</dd>
+                </div>
+                <div>
+                  <dt>Interviewed</dt>
+                  <dd>{app.upwork.interviewedAt?.slice(0, 10) || "Not set"}</dd>
+                </div>
+                <div>
+                  <dt>Offered</dt>
+                  <dd>{app.upwork.offeredAt?.slice(0, 10) || "Not set"}</dd>
+                </div>
+                <div>
+                  <dt>Hired</dt>
+                  <dd>{app.upwork.hiredAt?.slice(0, 10) || "Not set"}</dd>
+                </div>
+              </dl>
             </>
           )}
           <label className="jtField">
@@ -512,6 +591,15 @@ function compensationFromDraft(draft: typeof emptyManualDraft) {
     max,
     period: draft.compensationPeriod
   });
+}
+
+function formatCompensation(compensation: Application["compensation"]): string {
+  if (!compensation) return "Not set";
+  const range = compensation.min == null && compensation.max == null
+    ? ""
+    : [compensation.min, compensation.max].filter((value) => value != null).join(" – ");
+  const structured = [compensation.currency, range, compensation.period ? `per ${compensation.period}` : ""].filter(Boolean).join(" ");
+  return [compensation.text, structured].filter(Boolean).join(" · ") || "Not set";
 }
 
 function applicationToClipboardText(application: Application): string {

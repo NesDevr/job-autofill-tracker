@@ -236,8 +236,8 @@ export default function Widget({ showFab = true }: { showFab?: boolean } = {}) {
     setTrackNotice("");
   };
 
-  const openDashboard = () => {
-    void chrome.runtime.sendMessage({ kind: "OPEN_DASHBOARD" } satisfies ExtensionMessage);
+  const openDashboard = (applicationId?: number) => {
+    void chrome.runtime.sendMessage({ kind: "OPEN_DASHBOARD", applicationId } satisfies ExtensionMessage);
   };
 
   const addSkill = useCallback(
@@ -353,7 +353,9 @@ export default function Widget({ showFab = true }: { showFab?: boolean } = {}) {
                   </div>
                 )}
                 <div className="jtFooter">
-                  {tracked ? (
+                  {activeTab === "tracker" ? (
+                    <p className="jtTracked">Editing tracked jobs</p>
+                  ) : tracked ? (
                     <p className="jtTracked">Tracked: {tracked.status}</p>
                   ) : trackFormOpen ? (
                     <>
@@ -384,7 +386,7 @@ export default function Widget({ showFab = true }: { showFab?: boolean } = {}) {
                       Track this job
                     </button>
                   )}
-                  <button className="jtButtonGhost" onClick={openDashboard}>
+                  <button className="jtButtonGhost" onClick={() => openDashboard()}>
                     Open dashboard
                   </button>
                 </div>

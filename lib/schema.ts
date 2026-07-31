@@ -176,6 +176,7 @@ export type PendingApplication = {
 export type DashboardLaunch = {
   tab: "tracker";
   pendingId?: string;
+  applicationId?: number;
   createdAt: string;
 };
 
@@ -307,6 +308,7 @@ export type GetTrackedJobRequest = {
 export type OpenDashboardRequest = {
   kind: "OPEN_DASHBOARD";
   pendingId?: string;
+  applicationId?: number;
 };
 
 export type AiJobFitRequest = {

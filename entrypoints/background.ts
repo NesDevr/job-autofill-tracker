@@ -149,9 +149,12 @@ async function handleMessage(message: ExtensionMessage, sender: chrome.runtime.M
   }
 
   if (message.kind === "OPEN_DASHBOARD") {
-    if (message.pendingId) {
-      await setDashboardLaunch({ tab: "tracker", pendingId: message.pendingId, createdAt: new Date().toISOString() });
-    }
+    await setDashboardLaunch({
+      tab: "tracker",
+      pendingId: message.pendingId,
+      applicationId: message.applicationId,
+      createdAt: new Date().toISOString()
+    });
     await chrome.tabs.create({ url: chrome.runtime.getURL("options.html"), active: true });
     return { ok: true };
   }

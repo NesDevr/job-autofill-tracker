@@ -25,6 +25,7 @@ function App() {
   const [profileSaveStatus, setProfileSaveStatus] = useState("Saved");
   const [importStatus, setImportStatus] = useState("");
   const [launchPendingId, setLaunchPendingId] = useState<string | undefined>();
+  const [launchApplicationId, setLaunchApplicationId] = useState<number | undefined>();
   const skipNextProfileSave = useRef(true);
   const profileSaveTimer = useRef<number | undefined>(undefined);
 
@@ -75,6 +76,7 @@ function App() {
     if (!launch) return;
     setTab(launch.tab);
     setLaunchPendingId(launch.pendingId);
+    setLaunchApplicationId(launch.applicationId);
     await clearDashboardLaunch();
   }
 
@@ -181,7 +183,11 @@ function App() {
           demoMode={Boolean(settings?.demoMode)}
           setApplications={setApplications}
           launchPendingId={launchPendingId}
-          onLaunchConsumed={() => setLaunchPendingId(undefined)}
+          launchApplicationId={launchApplicationId}
+          onLaunchConsumed={() => {
+            setLaunchPendingId(undefined);
+            setLaunchApplicationId(undefined);
+          }}
         />
       )}
       {tab === "memory" && <MemoryPanel memories={memories} refresh={refresh} demoMode={Boolean(settings?.demoMode)} setMemories={setMemories} />}
@@ -411,6 +417,7 @@ function TrackerPanel({
   demoMode,
   setApplications,
   launchPendingId,
+  launchApplicationId,
   onLaunchConsumed
 }: {
   applications: Application[];
@@ -419,6 +426,7 @@ function TrackerPanel({
   demoMode: boolean;
   setApplications: React.Dispatch<React.SetStateAction<Application[]>>;
   launchPendingId?: string;
+  launchApplicationId?: number;
   onLaunchConsumed: () => void;
 }) {
   const [query, setQuery] = useState("");
@@ -453,6 +461,16 @@ function TrackerPanel({
     openPendingPaste(pending);
     onLaunchConsumed();
   }, [launchPendingId, pendingApplications, onLaunchConsumed]);
+
+  useEffect(() => {
+    if (launchApplicationId === undefined) return;
+    const application = applications.find((item) => item.id === launchApplicationId);
+    if (!application) return;
+    setQuery("");
+    setVisibleStatuses((current) => current.includes(application.status)
+      ? current
+      : statuses.filter((status) => status === application.status || current.includes(status)));
+  }, [applications, launchApplicationId]);
 
   function toggleVisibleStatus(status: ApplicationStatus) {
     setVisibleStatuses((current) => (
@@ -779,6 +797,8 @@ function TrackerPanel({
                     }}
                     variant="card"
                     key={app.id}
+                    focused={app.id === launchApplicationId}
+                    onFocused={onLaunchConsumed}
                     onDragStart={() => setDraggedId(app.id ?? null)}
                     onDragEnd={() => setDraggedId(null)}
                   />
@@ -799,6 +819,8 @@ function ApplicationRow({
   onUpdate,
   onDelete,
   variant = "list",
+  focused = false,
+  onFocused,
   onDragStart,
   onDragEnd
 }: {
@@ -806,10 +828,22 @@ function ApplicationRow({
   onUpdate: (patch: Partial<Application>) => void;
   onDelete: () => void;
   variant?: "list" | "card";
+  focused?: boolean;
+  onFocused?: () => void;
   onDragStart?: () => void;
   onDragEnd?: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const rowRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    if (!focused) return;
+    setExpanded(true);
+    window.requestAnimationFrame(() => {
+      rowRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      onFocused?.();
+    });
+  }, [focused, onFocused]);
 
   async function update(patch: Partial<Application>) {
     onUpdate(patch);
@@ -822,6 +856,7 @@ function ApplicationRow({
 
   return (
     <article
+      ref={rowRef}
       className={`${variant === "card" ? "applicationCard" : "appRow"}${expanded ? " expanded" : ""}`}
       draggable={variant === "card" && !expanded}
       onDragStart={onDragStart}
@@ -855,9 +890,12 @@ function ApplicationRow({
             <span>Role</span>
             <input value={app.role} onChange={(event) => void update({ role: event.target.value })} />
           </label>
-          <select value={app.status} onChange={(event) => void update({ status: event.target.value as ApplicationStatus })}>
-            {statuses.map((status) => <option key={status}>{status}</option>)}
-          </select>
+          <label>
+            <span>Status</span>
+            <select value={app.status} onChange={(event) => void update({ status: event.target.value as ApplicationStatus })}>
+              {statuses.map((status) => <option key={status}>{status}</option>)}
+            </select>
+          </label>
           <label>
             <span>Applied date</span>
             <input type="date" value={dateInputValue(app.dateApplied)} onChange={(event) => void update({ dateApplied: dateToIso(event.target.value) })} />
@@ -937,7 +975,10 @@ function ApplicationRow({
             <span>Job description</span>
             <textarea rows={5} value={app.jobDescription ?? ""} onChange={(event) => void update({ jobDescription: event.target.value })} />
           </label>
-          <small>{app.source}</small>
+          <label>
+            <span>Source</span>
+            <input value={app.source} onChange={(event) => void update({ source: event.target.value })} />
+          </label>
         </div>
       )}
     </article>

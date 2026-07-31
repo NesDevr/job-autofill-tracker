@@ -673,6 +673,72 @@
   padding-top: 6px;
 }
 
+.jtJobDetails {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 10px;
+  margin: 0;
+  padding: 8px;
+  border-radius: 6px;
+  background: var(--jt-bg);
+}
+
+.jtJobDetails div {
+  min-width: 0;
+}
+
+.jtJobDetails dt {
+  color: var(--jt-muted);
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.jtJobDetails dd {
+  margin: 2px 0 0;
+  color: var(--jt-text);
+  font-size: 11px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.jtJobDetails a {
+  color: var(--jt-accent);
+}
+
+.jtJobDetailWide {
+  grid-column: 1 / -1;
+}
+
+.jtJobTextBlock {
+  display: grid;
+  gap: 5px;
+  padding: 8px;
+  border: 1px solid var(--jt-border);
+  border-radius: 6px;
+}
+
+.jtJobTextBlock > strong,
+.jtJobAnswer > span {
+  font-size: 10px;
+}
+
+.jtJobTextBlock p {
+  margin: 0;
+  color: var(--jt-text);
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.jtJobAnswer {
+  display: grid;
+  gap: 2px;
+  padding-top: 5px;
+  border-top: 1px solid var(--jt-border);
+}
+
 .jtProfileSection {
   border: 1px solid var(--jt-border);
   border-radius: 7px;
