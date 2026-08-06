@@ -6,7 +6,6 @@ import { getDueCount, getProfile, getSettings, saveProfile } from "../../lib/sto
 import { changeUpworkStatus, UPWORK_PROPOSAL_STATUSES } from "../../lib/upwork";
 import {
   type Application,
-  type AutofillReviewItem,
   type ExtensionMessage,
   type PageContext,
   type PendingApplication,
@@ -26,13 +25,12 @@ type JobState =
   | { phase: "scored"; affinity: AffinityResult }
   | { phase: "error"; message: string };
 
-type TabId = "match" | "autofill" | "answer" | "upwork" | "tracker" | "profile";
+type TabId = "match" | "answer" | "upwork" | "tracker" | "profile";
 
 const JOB_DESCRIPTION_TIMEOUT_MS = 10_000;
 
 const TAB_LABELS: Record<TabId, string> = {
   match: "Match",
-  autofill: "Autofill",
   answer: "Answer",
   upwork: "Upwork",
   tracker: "Tracker",
@@ -55,17 +53,16 @@ export default function Widget({ showFab = true }: { showFab?: boolean } = {}) {
   const [trackDraft, setTrackDraft] = useState<Application>();
   const [readingPosting, setReadingPosting] = useState(false);
   const [pendingConfirm, setPendingConfirm] = useState<PendingApplication>();
-  const [activeTab, setActiveTab] = useState<TabId>("autofill");
+  const [activeTab, setActiveTab] = useState<TabId>(() => (isJobDetailUrl(location.href) ? "match" : "tracker"));
   const [dueCount, setDueCount] = useState(0);
 
   const isDetail = isJobDetailUrl(url);
   const isUpwork = location.hostname.includes("upwork.com");
   const tabs: TabId[] = [
     ...(isDetail ? (["match"] as const) : []),
-    "autofill",
+    "tracker",
     "answer",
     ...(isUpwork ? (["upwork"] as const) : []),
-    "tracker",
     "profile"
   ];
 
@@ -108,7 +105,7 @@ export default function Widget({ showFab = true }: { showFab?: boolean } = {}) {
 
   useEffect(() => {
     setTrackNotice("");
-    setActiveTab(isJobDetailUrl(url) ? "match" : "autofill");
+    setActiveTab(isJobDetailUrl(url) ? "match" : "tracker");
     if (!profile) return;
     if (!isJobDetailUrl(url)) {
       setPage(getPageContext());
@@ -117,13 +114,26 @@ export default function Widget({ showFab = true }: { showFab?: boolean } = {}) {
     }
     setJob({ phase: "loading" });
     let cancelled = false;
-    let timer = 0;
+    let retryTimer = 0;
+    let mutationTimer = 0;
+    let descriptionFound = false;
+    let lastDescription = "";
     const startedAt = Date.now();
-    const attempt = () => {
+    const scoreCurrentDescription = () => {
       if (cancelled) return;
       if (hasJobDescriptionSurface()) {
+        const description = extractJobDescription();
+        descriptionFound = true;
+        if (description === lastDescription) return;
+        lastDescription = description;
         setPage(getPageContext());
-        setJob({ phase: "scored", affinity: scoreAffinity(profile, extractJobDescription()) });
+        setJob({ phase: "scored", affinity: scoreAffinity(profile, description) });
+      }
+    };
+    const attempt = () => {
+      if (cancelled) return;
+      scoreCurrentDescription();
+      if (descriptionFound) {
         return;
       }
       if (Date.now() - startedAt >= JOB_DESCRIPTION_TIMEOUT_MS) {
@@ -131,12 +141,19 @@ export default function Widget({ showFab = true }: { showFab?: boolean } = {}) {
         setJob({ phase: "error", message: "Couldn't read the job description on this page." });
         return;
       }
-      timer = window.setTimeout(attempt, 500);
+      retryTimer = window.setTimeout(attempt, 500);
     };
-    timer = window.setTimeout(attempt, 0);
+    const observer = new MutationObserver(() => {
+      window.clearTimeout(mutationTimer);
+      mutationTimer = window.setTimeout(scoreCurrentDescription, 150);
+    });
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+    retryTimer = window.setTimeout(attempt, 0);
     return () => {
       cancelled = true;
-      window.clearTimeout(timer);
+      observer.disconnect();
+      window.clearTimeout(retryTimer);
+      window.clearTimeout(mutationTimer);
     };
   }, [url, profile]);
 
@@ -159,49 +176,11 @@ export default function Widget({ showFab = true }: { showFab?: boolean } = {}) {
     };
   }, [url, open]);
 
-  const readPosting = useCallback(async () => {
-    setReadingPosting(true);
-    setTrackNotice("");
-    try {
-      const response = await chrome.runtime.sendMessage({
-        kind: "AI_DRAFT_APPLICATION",
-        postingText
-      } satisfies ExtensionMessage);
-      if (!response?.ok) throw new Error(response?.error ?? "AI could not read the job text.");
-      const draft = response.draft as JobPostingDraft;
-      setTrackDraft({
-        company: draft.company,
-        role: draft.role,
-        jobUrl: draft.jobUrl,
-        source: draft.source,
-        dateApplied: new Date().toISOString(),
-        status: "Applied",
-        location: draft.location,
-        workMode: draft.workMode,
-        compensation: draft.compensation,
-        jobDescription: draft.jobDescription,
-        answersUsed: [],
-        notes: "",
-        upwork: draft.upwork
-      });
-      setTrackNotice("AI filled the tracker fields. Review them before saving.");
-    } catch (error) {
-      setTrackNotice(error instanceof Error ? error.message : String(error));
-    } finally {
-      setReadingPosting(false);
-    }
-  }, [postingText]);
-
-  const trackJob = useCallback(async () => {
-    if (!trackDraft) return;
-    if (!trackDraft.company.trim() || !trackDraft.role.trim()) {
-      setTrackNotice("Company and role are required.");
-      return;
-    }
+  const saveApplication = useCallback(async (draft: Application) => {
+    const application = { ...draft, status: "Applied" as const };
     setSaving(true);
     setTrackNotice("");
     try {
-      const application = { ...trackDraft, status: "Applied" as const };
       const response = await chrome.runtime.sendMessage({ kind: "LOG_APPLICATION", application } satisfies ExtensionMessage);
       if (!response?.ok) throw new Error(response?.error ?? "Tracking failed.");
       if (settings?.demoMode) {
@@ -218,7 +197,56 @@ export default function Widget({ showFab = true }: { showFab?: boolean } = {}) {
     } finally {
       setSaving(false);
     }
-  }, [settings, trackDraft]);
+  }, [settings]);
+
+  // AI mode saves straight from the pasted text. The draft form only appears when
+  // AI came back without a company or role, which cannot be saved as-is.
+  const readPosting = useCallback(async () => {
+    setReadingPosting(true);
+    setTrackNotice("");
+    try {
+      const response = await chrome.runtime.sendMessage({
+        kind: "AI_DRAFT_APPLICATION",
+        postingText
+      } satisfies ExtensionMessage);
+      if (!response?.ok) throw new Error(response?.error ?? "AI could not read the job text.");
+      const draft = response.draft as JobPostingDraft;
+      const application: Application = {
+        company: draft.company,
+        role: draft.role,
+        jobUrl: draft.jobUrl,
+        source: draft.source,
+        dateApplied: new Date().toISOString(),
+        status: "Applied",
+        location: draft.location,
+        workMode: draft.workMode,
+        compensation: draft.compensation,
+        jobDescription: draft.jobDescription,
+        answersUsed: [],
+        notes: "",
+        upwork: draft.upwork
+      };
+      if (!application.company.trim() || !application.role.trim()) {
+        setTrackDraft(application);
+        setTrackNotice("AI could not read the company or role. Fill them in, then save.");
+        return;
+      }
+      await saveApplication(application);
+    } catch (error) {
+      setTrackNotice(error instanceof Error ? error.message : String(error));
+    } finally {
+      setReadingPosting(false);
+    }
+  }, [postingText, saveApplication]);
+
+  const trackJob = useCallback(async () => {
+    if (!trackDraft) return;
+    if (!trackDraft.company.trim() || !trackDraft.role.trim()) {
+      setTrackNotice("Company and role are required.");
+      return;
+    }
+    await saveApplication(trackDraft);
+  }, [saveApplication, trackDraft]);
 
   const openTrackForm = () => {
     const mode = settings?.trackingEntryMode ?? "manual";
@@ -316,7 +344,6 @@ export default function Widget({ showFab = true }: { showFab?: boolean } = {}) {
                     )}
                   </>
                 )}
-                {activeTab === "autofill" && <AutofillTab />}
                 {activeTab === "answer" && <AnswerTab />}
                 {activeTab === "upwork" && (
                   <UpworkTab
@@ -364,7 +391,7 @@ export default function Widget({ showFab = true }: { showFab?: boolean } = {}) {
                         onClick={() => void (trackDraft ? trackJob() : readPosting())}
                         disabled={saving || readingPosting || (!trackDraft && !postingText.trim())}
                       >
-                        {saving ? "Saving..." : readingPosting ? "Reading with AI..." : trackDraft ? "Save as applied" : "Fill tracker with AI"}
+                        {saving ? "Saving..." : readingPosting ? "Reading with AI..." : trackDraft ? "Save as applied" : "Track with AI"}
                       </button>
                       <button
                         className="jtButtonGhost"
@@ -615,57 +642,6 @@ function TrackDraftForm({ draft, mode, onChange }: { draft: Application; mode: T
         <span>Job URL</span>
         <input value={draft.jobUrl} onChange={(event) => update({ jobUrl: event.target.value })} />
       </label>
-    </div>
-  );
-}
-
-function AutofillTab() {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [review, setReview] = useState<AutofillReviewItem[]>([]);
-  const [filled, setFilled] = useState<number>();
-
-  const run = async () => {
-    setBusy(true);
-    setError("");
-    try {
-      const response = await chrome.runtime.sendMessage({ kind: "AUTOFILL_TAB" } satisfies ExtensionMessage);
-      if (!response?.ok) throw new Error(response?.error ?? "Autofill failed.");
-      setReview((response.review as AutofillReviewItem[]) ?? []);
-      setFilled(response.filled as number);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const outstanding = review.filter((item) => item.status !== "filled");
-  return (
-    <div className="jtMatch">
-      <button className="jtButton" onClick={() => void run()} disabled={busy}>
-        {busy ? "Filling..." : "Autofill this page"}
-      </button>
-      {error && <p className="jtError">{error}</p>}
-      {filled !== undefined && !error && (
-        <p className="jtMuted">
-          {filled} filled, {outstanding.length} to check.
-        </p>
-      )}
-      {outstanding.length > 0 && (
-        <div className="jtReviewList">
-          {outstanding.map((item) => (
-            <div className={`jtReviewItem jtReview-${item.status}`} key={`${item.id}-${item.question}`}>
-              <span>{item.status === "confirmation" ? "Confirm" : item.status === "missing" ? "Missing" : "Blocked"}</span>
-              <div>
-                <strong>{item.question}</strong>
-                <p>{item.detail}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-      {review.length > 0 && outstanding.length === 0 && <p className="jtTracked">Every detected field was filled and verified.</p>}
     </div>
   );
 }
