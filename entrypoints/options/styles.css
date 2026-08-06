@@ -731,7 +731,7 @@ textarea:focus {
 }
 
 .applicationCard .appSummary {
-  grid-template-columns: 25px minmax(0, 1fr) 25px;
+  grid-template-columns: 25px minmax(0, 1fr) auto;
   gap: 7px;
 }
 
@@ -894,9 +894,14 @@ textarea:focus {
 
 .appSummary {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) 28px;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
   gap: 8px;
   align-items: center;
+}
+
+.appSummaryActions {
+  display: flex;
+  gap: 3px;
 }
 
 .appSummary strong {

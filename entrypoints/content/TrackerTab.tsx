@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { JobPostingDraft } from "../../lib/ai";
 import { normalizeCompensationCurrency } from "../../lib/compensation";
-import { isFollowUpDue, localTodayISO } from "../../lib/jobs";
+import { applicationToClipboardText, isFollowUpDue, localTodayISO } from "../../lib/jobs";
 import { changeUpworkStatus, UPWORK_PROPOSAL_STATUSES } from "../../lib/upwork";
 import {
   APPLICATION_STATUSES,
@@ -409,7 +409,7 @@ function TrackedJob({
         </div>
         <div className="jtJobRowActions">
           <button className="jtMiniButton" type="button" title="Copy all job details" onClick={() => void copyJob()}>
-            {copied ? "Copied" : "Copy"}
+            {copied ? "Copied" : "Copy all"}
           </button>
           {app.jobUrl ? (
             <a className="jtMiniButton" href={app.jobUrl} target="_blank" rel="noreferrer" title="Open job">
@@ -600,40 +600,6 @@ function formatCompensation(compensation: Application["compensation"]): string {
     : [compensation.min, compensation.max].filter((value) => value != null).join(" – ");
   const structured = [compensation.currency, range, compensation.period ? `per ${compensation.period}` : ""].filter(Boolean).join(" ");
   return [compensation.text, structured].filter(Boolean).join(" · ") || "Not set";
-}
-
-function applicationToClipboardText(application: Application): string {
-  const compensation = application.compensation;
-  return [
-    `${application.role || "Untitled role"} at ${application.company || "Unknown company"}`,
-    [
-      `Company: ${application.company}`,
-      `Role: ${application.role}`,
-      `Status: ${application.status}`,
-      `Source: ${application.source}`,
-      `Job URL: ${application.jobUrl}`,
-      `Date applied: ${application.dateApplied.slice(0, 10)}`,
-      application.nextActionDate ? `Next action date: ${application.nextActionDate.slice(0, 10)}` : "",
-      application.location ? `Location: ${application.location}` : "",
-      application.workMode ? `Work mode: ${application.workMode}` : "",
-      application.resumeVersion ? `Resume version: ${application.resumeVersion}` : ""
-    ].filter(Boolean).join("\n"),
-    compensation
-      ? [
-          "Compensation",
-          compensation.text ? `Details: ${compensation.text}` : "",
-          compensation.currency ? `Currency: ${compensation.currency}` : "",
-          compensation.min != null ? `Minimum: ${compensation.min}` : "",
-          compensation.max != null ? `Maximum: ${compensation.max}` : "",
-          compensation.period ? `Period: ${compensation.period}` : ""
-        ].filter(Boolean).join("\n")
-      : "",
-    application.notes ? `Notes\n${application.notes}` : "",
-    application.jobDescription ? `Job description\n${application.jobDescription}` : "",
-    application.answersUsed.length > 0
-      ? `Application answers\n${application.answersUsed.map((item) => `Question: ${item.question}\nAnswer: ${item.answer}`).join("\n\n")}`
-      : ""
-  ].filter(Boolean).join("\n\n");
 }
 
 function numberOrUndefined(value: string): number | undefined {

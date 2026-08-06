@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { BriefcaseBusiness, Building2, CalendarClock, ChevronDown, ChevronRight, Download, FileText, KeyRound, ListFilter, MapPin, Plus, Save, Search, Sparkles, Trash2, Upload, UserRound, Wand2, X } from "lucide-react";
+import { BriefcaseBusiness, Building2, CalendarClock, Check, ChevronDown, ChevronRight, Copy, Download, FileText, KeyRound, ListFilter, MapPin, Plus, Save, Search, Sparkles, Trash2, Upload, UserRound, Wand2, X } from "lucide-react";
 import { draftApplicationFromJobPosting, draftSingleAnswer, enrichProfileFromText, importProfileFromCv } from "../../lib/ai";
 import { normalizeCompensationCurrency } from "../../lib/compensation";
 import { db } from "../../lib/db";
 import { createDemoApplications, createDemoMemories } from "../../lib/demo";
+import { applicationToClipboardText } from "../../lib/jobs";
 import { questionHash } from "../../lib/mapping";
 import { APPLICATION_STATUSES, EMPTY_PROFILE, type AnswerMemory, type Application, type ApplicationStatus, type CompensationCurrency, type CompensationPeriod, type Experience, type PendingApplication, type PersonalProject, type Profile, type Settings, type ThemeMode, type TrackingEntryMode, type UpworkProposalStatus } from "../../lib/schema";
 import { bumpApplicationsRev, clearDashboardLaunch, getDashboardLaunch, getPendingApplications, getProfile, getSettings, removePendingApplication, saveProfile, saveSettings } from "../../lib/storage";
@@ -16,7 +17,7 @@ const statuses = APPLICATION_STATUSES;
 const defaultBoardStatuses: ApplicationStatus[] = ["Applied", "Interview", "Rejected"];
 
 function App() {
-  const [tab, setTab] = useState<"profile" | "tracker" | "memory" | "settings">("profile");
+  const [tab, setTab] = useState<"profile" | "tracker" | "memory" | "settings">("tracker");
   const [profile, setProfile] = useState<Profile>(EMPTY_PROFILE);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [applications, setApplications] = useState<Application[]>([]);
@@ -142,6 +143,8 @@ function App() {
 
   const dueCount = applications.filter((app) => app.nextActionDate && new Date(app.nextActionDate) <= new Date()).length;
   const weekCount = applications.filter((app) => Date.now() - new Date(app.dateApplied).getTime() < 7 * 24 * 60 * 60 * 1000).length;
+  const todayKey = new Date().toDateString();
+  const todayCount = applications.filter((app) => new Date(app.dateApplied).toDateString() === todayKey).length;
 
   return (
     <main className="shell">
@@ -154,14 +157,15 @@ function App() {
       </header>
 
       <section className="metrics">
+        <Metric label="Today" value={todayCount} />
         <Metric label="This week" value={weekCount} />
         <Metric label="Due" value={dueCount} />
         <Metric label="Memory" value={memories.length} />
       </section>
 
       <nav className="tabs">
-        <Tab active={tab === "profile"} onClick={() => setTab("profile")} icon={<UserRound size={15} />} label="Profile" />
         <Tab active={tab === "tracker"} onClick={() => setTab("tracker")} icon={<CalendarClock size={15} />} label="Tracker" />
+        <Tab active={tab === "profile"} onClick={() => setTab("profile")} icon={<UserRound size={15} />} label="Profile" />
         <Tab active={tab === "memory"} onClick={() => setTab("memory")} icon={<FileText size={15} />} label="Answers" />
         <Tab active={tab === "settings"} onClick={() => setTab("settings")} icon={<KeyRound size={15} />} label="Settings" />
       </nav>
@@ -834,6 +838,7 @@ function ApplicationRow({
   onDragEnd?: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [copied, setCopied] = useState(false);
   const rowRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
@@ -845,6 +850,12 @@ function ApplicationRow({
     });
   }, [focused, onFocused]);
 
+  useEffect(() => {
+    if (!copied) return;
+    const timer = window.setTimeout(() => setCopied(false), 1500);
+    return () => window.clearTimeout(timer);
+  }, [copied]);
+
   async function update(patch: Partial<Application>) {
     onUpdate(patch);
   }
@@ -852,6 +863,11 @@ function ApplicationRow({
   async function remove() {
     if (!app.id) return;
     onDelete();
+  }
+
+  async function copyJob() {
+    await navigator.clipboard.writeText(applicationToClipboardText(app));
+    setCopied(true);
   }
 
   return (
@@ -875,9 +891,14 @@ function ApplicationRow({
           {(app.location || app.workMode) && <small className="cardMeta"><MapPin size={11} /> {[app.location, app.workMode].filter(Boolean).join(" · ")}</small>}
           {variant === "card" && !app.location && !app.workMode && <small className="cardMeta"><BriefcaseBusiness size={11} /> {app.source}</small>}
         </div>
-        <button className="rowIconButton danger" title="Delete application" onClick={() => void remove()}>
-          <Trash2 size={15} />
-        </button>
+        <div className="appSummaryActions">
+          <button className="rowIconButton" title={copied ? "Copied" : "Copy all job data"} aria-label={copied ? "Copied" : "Copy all job data"} onClick={() => void copyJob()}>
+            {copied ? <Check size={15} /> : <Copy size={15} />}
+          </button>
+          <button className="rowIconButton danger" title="Delete application" aria-label="Delete application" onClick={() => void remove()}>
+            <Trash2 size={15} />
+          </button>
+        </div>
       </div>
 
       {expanded && (
