@@ -95,10 +95,155 @@ button:disabled { cursor: default; opacity: .65; }
 button span { display: grid; gap: 2px; }
 button strong { font-size: 12px; }
 button small { color: var(--muted); font-size: 10px; }
+.searches {
+  display: grid;
+  gap: 6px;
+  margin: -3px 0 0;
+  padding-top: 11px;
+  border-top: 1px solid var(--border);
+}
+
+.searchesHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.searchesHeader p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .09em;
+}
+
+.searchesEdit {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: auto;
+  border: none;
+  background: none;
+  padding: 2px 4px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.searchesEdit:hover:not(:disabled) { transform: none; color: var(--text); }
+
+.searchesEmpty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.searchLinks { display: grid; gap: 5px; }
+
+.searchRow { display: flex; gap: 5px; }
+
+.searchLink {
+  display: flex;
+  grid-template-columns: none;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+}
+
+.searchLink span {
+  display: block;
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.searchDelete {
+  display: grid;
+  width: 32px;
+  flex-shrink: 0;
+  place-items: center;
+  grid-template-columns: none;
+  padding: 0;
+  color: #b4472f;
+}
+
+.searchForm { display: grid; gap: 5px; }
+
+.searchForm input {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  padding: 8px 10px;
+  font-size: 11px;
+  font-family: inherit;
+}
+
+.searchForm button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  grid-template-columns: none;
+  background: var(--accent);
+  color: var(--accent-text);
+  border-color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+}
+
 .status {
   margin: -2px 0 0;
   color: var(--muted);
   font-size: 10px;
   font-weight: 700;
   line-height: 1.35;
+}
+
+.review {
+  display: grid;
+  gap: 6px;
+  margin: -4px 0 0;
+  padding: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.reviewItem {
+  display: flex;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 7px 8px;
+}
+
+.reviewItem span {
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  padding-top: 1px;
+}
+
+.review-missing span { color: #b4472f; }
+
+.reviewItem strong {
+  display: block;
+  font-size: 11px;
+  line-height: 1.25;
+}
+
+.reviewItem p {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.3;
 }

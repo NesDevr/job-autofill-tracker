@@ -148,6 +148,12 @@ export type UpworkProposalDetails = {
 export type ThemeMode = "light" | "dark";
 export type TrackingEntryMode = "manual" | "ai";
 
+export type SavedSearch = {
+  id: string;
+  label: string;
+  url: string;
+};
+
 export type Application = {
   id?: number;
   company: string;
@@ -262,6 +268,7 @@ export type Settings = {
   theme: ThemeMode;
   trackingEntryMode: TrackingEntryMode;
   cardBadges: boolean;
+  customSearches: SavedSearch[];
   enabledSites: {
     greenhouse: boolean;
     lever: boolean;
@@ -483,6 +490,7 @@ export const DEFAULT_SETTINGS: Settings = {
   theme: "light",
   trackingEntryMode: "manual",
   cardBadges: true,
+  customSearches: [],
   enabledSites: {
     greenhouse: true,
     lever: true,
