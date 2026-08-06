@@ -22,11 +22,14 @@ export default defineContentScript({
   cssInjectionMode: "ui",
   async main(ctx) {
     const allowedJobPage = isAllowedJobPage();
+    const canAutofillHere = allowedJobPage && !isTopPageWithEmbeddedJobForm();
 
-    // Autofill/submit engine runs in every frame except a top page that only hosts an ATS iframe.
-    if (allowedJobPage && !isTopPageWithEmbeddedJobForm()) {
-      chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, sendResponse) => {
-        if (message.kind === "AUTOFILL_CURRENT_FORM") {
+    chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, sendResponse) => {
+      if (message.kind === "AUTOFILL_CURRENT_FORM") {
+        // Some ATSs render their application form after document_idle. Check
+        // again at the user action instead of relying on the page-load state.
+        const canAutofillNow = isAllowedJobPage() && !isTopPageWithEmbeddedJobForm();
+        if (canAutofillNow) {
           fillCurrentForm()
             .then(sendResponse)
             .catch((error: unknown) => {
@@ -36,13 +39,26 @@ export default defineContentScript({
           return true;
         }
 
-        if (message.kind === "TRACK_CURRENT_APPLICATION") {
-          sendResponse({ ok: true, pending: queueTrackCurrentApplication() });
+        // Do not reply from an iframe host: its application-frame listener must
+        // be the one that answers the message.
+        if (window.self === window.top && !isTopPageWithEmbeddedJobForm()) {
+          sendResponse({
+            ok: false,
+            error: "No application form was detected on this page. Open the application form, then try autofill again."
+          });
           return false;
         }
+      }
 
+      if (message.kind === "TRACK_CURRENT_APPLICATION" && isAllowedJobPage() && !isTopPageWithEmbeddedJobForm()) {
+        sendResponse({ ok: true, pending: queueTrackCurrentApplication() });
         return false;
-      });
+      }
+      return false;
+    });
+
+    // Autofill/submit engine runs in every frame except a top page that only hosts an ATS iframe.
+    if (canAutofillHere) {
       watchSubmit();
     }
 

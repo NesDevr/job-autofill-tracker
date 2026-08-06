@@ -6,7 +6,13 @@ import { SYNONYMS } from "./synonyms";
 import type { AnswerMemory, CanonicalField, FieldDescriptor, FieldFill, Profile } from "./schema";
 
 export function normalizeText(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9+ ]+/g, " ").replace(/\s+/g, " ").trim();
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9+ ]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 export function questionHash(question: string): string {

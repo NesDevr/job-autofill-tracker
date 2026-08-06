@@ -203,7 +203,14 @@ async function handleMessage(message: ExtensionMessage, sender: chrome.runtime.M
 
 async function sendAutofillToTab(tabId: number): Promise<unknown> {
   const request = { kind: "AUTOFILL_CURRENT_FORM" } satisfies ExtensionMessage;
-  return await sendMessageToTabWithInjection(tabId, request);
+  const response = await sendMessageToTabWithInjection(tabId, request);
+  if (response === undefined) {
+    return {
+      ok: false,
+      error: "The page did not respond to autofill. Reload the application page and try again."
+    };
+  }
+  return response;
 }
 
 async function sendMessageToTabWithInjection(tabId: number, request: ExtensionMessage): Promise<unknown> {

@@ -34,11 +34,21 @@ function hasApplicationSurface(): boolean {
     "job application",
     "application questions",
     "cover letter",
-    "applying for"
+    "applying for",
+    "informacion personal",
+    "información personal",
+    "subir curriculum",
+    "subir currículum",
+    "solicitar con linkedin",
+    "postular con linkedin"
   ]);
-  if (!strongPhrase) return false;
   const fields = Array.from(document.querySelectorAll<HTMLElement>("input, textarea, select")).filter(isVisible);
-  return fields.length >= 3;
+  if (fields.length < 3) return false;
+
+  // Company-hosted ATS pages often localize all visible copy, but their apply
+  // route and multi-field form are still reliable application signals.
+  const applicationPath = /(?:^|\/)(apply|application|applications|careers?)(?:\/|$)/.test(location.pathname.toLowerCase());
+  return strongPhrase || applicationPath;
 }
 
 export function isTopPageWithEmbeddedJobForm(): boolean {
@@ -154,7 +164,24 @@ function isManualPageControl(field: FieldDescriptor, target: FillTarget): boolea
 }
 
 function reviewItem(field: FieldDescriptor, status: AutofillReviewItem["status"], detail: string): AutofillReviewItem {
-  return { id: field.id, question: field.question, status, detail };
+  return { id: field.id, question: reviewQuestion(field), status, detail };
+}
+
+function reviewQuestion(field: FieldDescriptor): string {
+  const genericIdentifier = /^(?:apply|application)\[.+\]$/i.test(field.question)
+    || /^(?:name|email|phone|telephone|city|country)$/i.test(field.question)
+    || /^\+?[\d\s()-]+$/.test(field.question);
+  if (!genericIdentifier) {
+    return field.question;
+  }
+
+  const signal = directFieldSignal(field);
+  if (hasAny(signal, ["first name", "firstname", "given name", "nombre", "apply name"])) return "First name";
+  if (hasAny(signal, ["last name", "lastname", "surname", "family name", "apellido"])) return "Last name";
+  if (hasAny(signal, ["email", "correo"])) return "Email";
+  if (hasAny(signal, ["phone", "mobile", "telephone", "telefono", "teléfono"])) return "Phone";
+  if (hasAny(signal, ["city", "ciudad"])) return "City";
+  return field.question;
 }
 
 function fieldKey(field: FieldDescriptor): string {
@@ -257,7 +284,9 @@ function describeField(element: HTMLElement): string {
 }
 
 function cleanLabel(value: string): string {
-  return value.replace(/\s*\*\s*$/, "").replace(/\s+/g, " ").trim();
+  const label = value.replace(/\s*\*\s*$/, "").replace(/\s+/g, " ").trim();
+  const wrappedName = label.match(/^(?:apply|application)\[([^\]]+)\]$/i)?.[1];
+  return wrappedName ?? label;
 }
 
 function labelFor(el: HTMLElement): string {
@@ -388,6 +417,8 @@ function ancestorSignal(element: HTMLElement): string {
 function normalizeSignal(value: string): string {
   return value
     .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .replace(/[^a-z0-9+ ]+/g, " ")
     .replace(/\s+/g, " ")
@@ -395,12 +426,12 @@ function normalizeSignal(value: string): string {
 }
 
 function directProfileValue(signal: string, profile: Profile, ref: HTMLElement): string | boolean | undefined {
-  if (hasAny(signal, ["first name", "firstname", "given name"])) return profile.identity.firstName;
+  if (hasAny(signal, ["first name", "firstname", "given name", "nombre", "apply name"])) return profile.identity.firstName;
   if (hasAny(signal, ["middle name", "middlename"])) return profile.identity.middleName;
-  if (hasAny(signal, ["last name", "lastname", "surname", "family name"])) return profile.identity.lastName;
-  if (hasAny(signal, ["email", "e mail"])) return profile.identity.email;
+  if (hasAny(signal, ["last name", "lastname", "surname", "family name", "apellido"])) return profile.identity.lastName;
+  if (hasAny(signal, ["email", "e mail", "correo"])) return profile.identity.email;
   if (hasAny(signal, ["country code", "phone country code", "dialing code", "dialling code"])) return profile.identity.phoneCountryCode;
-  if (hasAny(signal, ["phone", "mobile", "telephone"])) {
+  if (hasAny(signal, ["phone", "mobile", "telephone", "telefono", "teléfono"])) {
     return hasPhoneCountryControl(ref) ? formatProfileNationalPhone(profile) : formatProfilePhone(profile);
   }
   if (hasAny(signal, ["linkedin"])) return profile.identity.links.linkedin;
@@ -410,7 +441,7 @@ function directProfileValue(signal: string, profile: Profile, ref: HTMLElement):
   if (hasAny(signal, ["address line 1", "address 1", "street address"])) return profile.identity.address.line1;
   if (hasAny(signal, ["address line 2", "address 2", "apartment", "suite"])) return profile.identity.address.line2;
   if (hasAny(signal, ["postal code", "zip code", " zip "])) return profile.identity.address.postalCode;
-  if (hasAny(signal, ["city"])) return profile.identity.location.city;
+  if (hasAny(signal, ["city", "ciudad"])) return profile.identity.location.city;
   if (hasAny(signal, ["state", "province", "region"])) return profile.identity.location.state;
   if (hasAny(signal, ["visa status", "immigration status"])) return profile.workAuthorization.visaStatus;
   if (hasAny(signal, ["sponsorship", "sponsor"])) return profile.workAuthorization.requiresSponsorship;
@@ -839,7 +870,7 @@ function isFinalSubmitControl(button: HTMLElement): boolean {
   const text = normalizeSignal(buttonLabel(button));
   if (!text) return false;
   if (hasAny(text, ["next", "continue", "review", "easy apply", "apply now", "start application"])) return false;
-  return /(^|\s)(submit|send)(\s|$)/.test(text) || hasAny(text, ["submit application", "submit your application", "send application"]);
+  return /(^|\s)submit(\s|$)/.test(text) || hasAny(text, ["submit application", "submit your application", "send application"]);
 }
 
 function buttonLabel(button: HTMLElement): string {

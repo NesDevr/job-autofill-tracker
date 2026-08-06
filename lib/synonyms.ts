@@ -1,16 +1,16 @@
 import type { CanonicalField } from "./schema";
 
 export const SYNONYMS: Record<CanonicalField, string[]> = {
-  "identity.firstName": ["first name", "given name", "legal first name"],
+  "identity.firstName": ["first name", "given name", "legal first name", "nombre"],
   "identity.middleName": ["middle name"],
-  "identity.lastName": ["last name", "surname", "family name", "legal last name"],
-  "identity.email": ["email", "email address", "e-mail"],
+  "identity.lastName": ["last name", "surname", "family name", "legal last name", "apellido"],
+  "identity.email": ["email", "email address", "e-mail", "correo"],
   "identity.phoneCountryCode": ["country code", "phone country code", "dialing code", "dialling code"],
-  "identity.phone": ["phone", "phone number", "mobile", "telephone"],
+  "identity.phone": ["phone", "phone number", "mobile", "telephone", "telefono", "teléfono"],
   "identity.address.line1": ["address line 1", "address 1", "street address"],
   "identity.address.line2": ["address line 2", "address 2", "apartment", "suite"],
   "identity.address.postalCode": ["postal code", "zip code", "zip"],
-  "identity.location.city": ["city", "current city", "location city"],
+  "identity.location.city": ["city", "current city", "location city", "ciudad"],
   "identity.location.state": ["state", "province", "region", "current state", "location state"],
   "identity.location.country": ["country", "current country", "location country"],
   "identity.links.linkedin": ["linkedin", "linkedin profile", "linkedin url"],
