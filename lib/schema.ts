@@ -267,8 +267,9 @@ export type Settings = {
   model: string;
   theme: ThemeMode;
   trackingEntryMode: TrackingEntryMode;
-  cardBadges: boolean;
+  matchScoring: boolean;
   customSearches: SavedSearch[];
+  hiddenPresetSearches: string[];
   enabledSites: {
     greenhouse: boolean;
     lever: boolean;
@@ -489,8 +490,9 @@ export const DEFAULT_SETTINGS: Settings = {
   model: "gpt-5.4-mini",
   theme: "light",
   trackingEntryMode: "manual",
-  cardBadges: true,
+  matchScoring: false,
   customSearches: [],
+  hiddenPresetSearches: [],
   enabledSites: {
     greenhouse: true,
     lever: true,

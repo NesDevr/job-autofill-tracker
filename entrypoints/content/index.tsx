@@ -85,7 +85,7 @@ export default defineContentScript({
     });
     ui.mount();
 
-    if (allowedJobPage && (await getSettings()).cardBadges) {
+    if (allowedJobPage && (await getSettings()).matchScoring) {
       initCardBadges(await getProfile());
     }
   }

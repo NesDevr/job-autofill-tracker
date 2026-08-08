@@ -1277,8 +1277,8 @@ function SettingsPanel({ settings, save }: { settings: Settings; save: (settings
       <Field label="OpenAI API key" type="password" value={settings.apiKey} onChange={(value) => void save({ ...settings, apiKey: value })} />
       <Field label="Model" value={settings.model} onChange={(value) => void save({ ...settings, model: value })} />
       <label>
-        <input type="checkbox" checked={settings.cardBadges} onChange={(event) => void save({ ...settings, cardBadges: event.target.checked })} />
-        {" "}Show match badges on job search cards (applies after page reload)
+        <input type="checkbox" checked={settings.matchScoring} onChange={(event) => void save({ ...settings, matchScoring: event.target.checked })} />
+        {" "}Enable skill match scoring — the Match tab and job-card badges (off by default; applies after page reload)
       </label>
       <div className="siteGrid">
         {Object.entries(settings.enabledSites).map(([site, enabled]) => (

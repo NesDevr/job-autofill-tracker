@@ -53,13 +53,13 @@ export default function Widget({ showFab = true }: { showFab?: boolean } = {}) {
   const [trackDraft, setTrackDraft] = useState<Application>();
   const [readingPosting, setReadingPosting] = useState(false);
   const [pendingConfirm, setPendingConfirm] = useState<PendingApplication>();
-  const [activeTab, setActiveTab] = useState<TabId>(() => (isJobDetailUrl(location.href) ? "match" : "tracker"));
+  const [activeTab, setActiveTab] = useState<TabId>("tracker");
   const [dueCount, setDueCount] = useState(0);
 
-  const isDetail = isJobDetailUrl(url);
+  const showMatch = isJobDetailUrl(url) && (settings?.matchScoring ?? false);
   const isUpwork = location.hostname.includes("upwork.com");
   const tabs: TabId[] = [
-    ...(isDetail ? (["match"] as const) : []),
+    ...(showMatch ? (["match"] as const) : []),
     "tracker",
     "answer",
     ...(isUpwork ? (["upwork"] as const) : []),
@@ -105,9 +105,10 @@ export default function Widget({ showFab = true }: { showFab?: boolean } = {}) {
 
   useEffect(() => {
     setTrackNotice("");
-    setActiveTab(isJobDetailUrl(url) ? "match" : "tracker");
+    const matchEnabled = isJobDetailUrl(url) && (settings?.matchScoring ?? false);
+    setActiveTab(matchEnabled ? "match" : "tracker");
     if (!profile) return;
-    if (!isJobDetailUrl(url)) {
+    if (!matchEnabled) {
       setPage(getPageContext());
       setJob({ phase: "idle" });
       return;
@@ -155,7 +156,7 @@ export default function Widget({ showFab = true }: { showFab?: boolean } = {}) {
       window.clearTimeout(retryTimer);
       window.clearTimeout(mutationTimer);
     };
-  }, [url, profile]);
+  }, [url, profile, settings?.matchScoring]);
 
   useEffect(() => {
     setTrackFormOpen(false);
