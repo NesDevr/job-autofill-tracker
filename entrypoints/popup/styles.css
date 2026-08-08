@@ -142,6 +142,11 @@ button small { color: var(--muted); font-size: 10px; }
 
 .searchRow { display: flex; gap: 5px; }
 
+.searchRow.hidden { opacity: .5; }
+.searchRow.hidden .searchLink { text-decoration: line-through; cursor: default; }
+
+.searchDelete.restore { color: var(--muted); }
+
 .searchLink {
   display: flex;
   grid-template-columns: none;
