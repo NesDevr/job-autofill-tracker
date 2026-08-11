@@ -769,11 +769,6 @@ textarea:focus {
   font-weight: 500 !important;
 }
 
-.pendingList {
-  display: grid;
-  gap: 8px;
-}
-
 .manualJobPanel,
 .pasteJobPanel {
   display: grid;
@@ -817,57 +812,6 @@ textarea:focus {
   font-size: 12px;
   font-weight: 700;
   padding: 8px 10px;
-}
-
-.pendingApplication {
-  display: grid;
-  gap: 10px;
-  border: 1px solid #27745f;
-  border-radius: 8px;
-  background: #f2fff9;
-  padding: 10px;
-}
-
-.pendingApplication strong {
-  display: block;
-  margin-bottom: 4px;
-  font-size: 13px;
-}
-
-.pendingApplication p {
-  color: #101820;
-  font-size: 12px;
-  line-height: 1.35;
-}
-
-.pendingApplication small {
-  color: #536271;
-  display: block;
-  font-size: 11px;
-  margin-top: 5px;
-}
-
-.pendingActions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.pendingActions button {
-  border: 1px solid #c6b9a8;
-  border-radius: 7px;
-  background: #fffaf2;
-  color: #101820;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 700;
-  padding: 8px 10px;
-}
-
-.pendingActions button.primary {
-  border-color: #27745f;
-  background: #27745f;
-  color: #fffdf8;
 }
 
 .appListHeader {
@@ -1185,7 +1129,6 @@ textarea:focus {
 :root[data-theme="dark"] .manualJobPanel,
 :root[data-theme="dark"] .pasteJobPanel,
 :root[data-theme="dark"] .answerEditor,
-:root[data-theme="dark"] .pendingApplication,
 :root[data-theme="dark"] .siteGrid label,
 :root[data-theme="dark"] .toggles label {
   border-color: #334155;
@@ -1249,7 +1192,6 @@ textarea:focus {
 :root[data-theme="dark"] .toolbar button,
 :root[data-theme="dark"] .demoModeButton,
 :root[data-theme="dark"] .rowIconButton,
-:root[data-theme="dark"] .pendingActions button,
 :root[data-theme="dark"] .answerActions button,
 :root[data-theme="dark"] .answerEditorActions button,
 :root[data-theme="dark"] .statusFilterActions button,
@@ -1262,7 +1204,6 @@ textarea:focus {
 
 :root[data-theme="dark"] .tab.active,
 :root[data-theme="dark"] .pasteActions button,
-:root[data-theme="dark"] .pendingActions button.primary,
 :root[data-theme="dark"] .answerEditorActions button,
 :root[data-theme="dark"] .answerActions button:first-child {
   border-color: #34d399;
@@ -1320,7 +1261,6 @@ textarea:focus {
 :root[data-theme="dark"] .appSummary p,
 :root[data-theme="dark"] .applicationCard .appSummary p,
 :root[data-theme="dark"] .answer p,
-:root[data-theme="dark"] .pendingApplication p,
 :root[data-theme="dark"] .pasteActions span,
 :root[data-theme="dark"] .saveStamp,
 :root[data-theme="dark"] .metric span {

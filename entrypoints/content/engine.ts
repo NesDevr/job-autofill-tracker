@@ -2,7 +2,7 @@ import { applyFill, type FillTarget } from "../../lib/fillers";
 import { canonicalJobUrl } from "../../lib/jobs";
 import { formatProfileNationalPhone, formatProfilePhone } from "../../lib/profileValues";
 import { getProfile } from "../../lib/storage";
-import type { Application, AutofillReviewItem, ExtensionMessage, FieldDescriptor, FieldFill, PageContext, PendingApplication, Profile } from "../../lib/schema";
+import type { Application, AutofillReviewItem, ExtensionMessage, FieldDescriptor, FieldFill, PageContext, Profile } from "../../lib/schema";
 
 const fieldRefs = new Map<string, FillTarget>();
 const loggedSubmissionKeys = new Set<string>();
@@ -892,7 +892,7 @@ function formMatchesApplication(form: HTMLFormElement): boolean {
 }
 
 function requestTrackCurrentApplication(): void {
-  queueTrackCurrentApplication();
+  trackCurrentApplication();
 }
 
 export function buildCurrentApplication(status: Application["status"]): Application {
@@ -915,19 +915,14 @@ export function buildCurrentApplication(status: Application["status"]): Applicat
   };
 }
 
-export function queueTrackCurrentApplication(): PendingApplication {
+export function trackCurrentApplication(): Application {
   const application = buildCurrentApplication("Applied");
   const key = `${application.source}|${application.company}|${application.role}|${canonicalJobUrl(application.jobUrl)}`;
-  const pending: PendingApplication = {
-    id: key,
-    application,
-    createdAt: new Date().toISOString()
-  };
   if (!loggedSubmissionKeys.has(key)) {
     loggedSubmissionKeys.add(key);
-    void chrome.runtime.sendMessage({ kind: "APPLICATION_SUBMITTED", pending } satisfies ExtensionMessage);
+    void chrome.runtime.sendMessage({ kind: "APPLICATION_SUBMITTED" } satisfies ExtensionMessage);
   }
-  return pending;
+  return application;
 }
 
 function detectSource(hostname: string): string {

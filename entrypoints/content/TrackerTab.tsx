@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { JobPostingDraft } from "../../lib/ai";
 import { normalizeCompensationCurrency } from "../../lib/compensation";
-import { applicationToClipboardText, isFollowUpDue, localTodayISO } from "../../lib/jobs";
+import { applicationToClipboardText, isFollowUpDue, localDateISO, localTodayISO } from "../../lib/jobs";
 import { changeUpworkStatus, UPWORK_PROPOSAL_STATUSES } from "../../lib/upwork";
 import {
   APPLICATION_STATUSES,
@@ -190,7 +190,7 @@ export default function TrackerTab({ demoMode, onOpenDashboard }: { demoMode: bo
       <div className="jtStatRow">
         <Stat label="Today" value={stats.dayCount} />
         <Stat label="Yesterday" value={stats.yesterdayCount} />
-        <Stat label="Week" value={stats.weekCount} />
+        <Stat label="Last 7 days" value={stats.weekCount} />
       </div>
       <div className="jtRow">
         <button
@@ -427,7 +427,7 @@ function TrackedJob({
             </div>
             <div>
               <dt>Applied</dt>
-              <dd>{app.dateApplied ? app.dateApplied.slice(0, 10) : "Not set"}</dd>
+              <dd>{app.dateApplied ? localDateISO(app.dateApplied) : "Not set"}</dd>
             </div>
             <div>
               <dt>Location</dt>

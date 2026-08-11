@@ -1,8 +1,12 @@
 import type { Application } from "./schema";
 
+export function localDateISO(value: Date | string): string {
+  const date = typeof value === "string" ? new Date(value) : value;
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
 export function localTodayISO(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  return localDateISO(new Date());
 }
 
 export function isFollowUpDue(application: Application, todayISO: string): boolean {
@@ -22,7 +26,7 @@ export function applicationToClipboardText(application: Application): string {
       `Status: ${application.status}`,
       `Source: ${application.source}`,
       `Job URL: ${application.jobUrl}`,
-      `Date applied: ${application.dateApplied.slice(0, 10)}`,
+      `Date applied: ${localDateISO(application.dateApplied)}`,
       application.nextActionDate ? `Next action date: ${application.nextActionDate.slice(0, 10)}` : "",
       application.location ? `Location: ${application.location}` : "",
       application.workMode ? `Work mode: ${application.workMode}` : "",

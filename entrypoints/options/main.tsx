@@ -5,10 +5,10 @@ import { draftApplicationFromJobPosting, draftSingleAnswer, enrichProfileFromTex
 import { normalizeCompensationCurrency } from "../../lib/compensation";
 import { db } from "../../lib/db";
 import { createDemoApplications, createDemoMemories } from "../../lib/demo";
-import { applicationToClipboardText } from "../../lib/jobs";
+import { applicationToClipboardText, localDateISO, localTodayISO } from "../../lib/jobs";
 import { questionHash } from "../../lib/mapping";
-import { APPLICATION_STATUSES, EMPTY_PROFILE, type AnswerMemory, type Application, type ApplicationStatus, type CompensationCurrency, type CompensationPeriod, type Experience, type PendingApplication, type PersonalProject, type Profile, type Settings, type ThemeMode, type TrackingEntryMode, type UpworkProposalStatus } from "../../lib/schema";
-import { bumpApplicationsRev, clearDashboardLaunch, getDashboardLaunch, getPendingApplications, getProfile, getSettings, removePendingApplication, saveProfile, saveSettings } from "../../lib/storage";
+import { APPLICATION_STATUSES, EMPTY_PROFILE, type AnswerMemory, type Application, type ApplicationStatus, type CompensationCurrency, type CompensationPeriod, type Experience, type PersonalProject, type Profile, type Settings, type ThemeMode, type TrackingEntryMode, type UpworkProposalStatus } from "../../lib/schema";
+import { bumpApplicationsRev, clearDashboardLaunch, getDashboardLaunch, getProfile, getSettings, saveProfile, saveSettings } from "../../lib/storage";
 import { applyTheme } from "../../lib/theme";
 import { changeUpworkStatus, UPWORK_PROPOSAL_STATUSES, upworkRate, upworkSummary } from "../../lib/upwork";
 import "./styles.css";
@@ -21,11 +21,9 @@ function App() {
   const [profile, setProfile] = useState<Profile>(EMPTY_PROFILE);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [applications, setApplications] = useState<Application[]>([]);
-  const [pendingApplications, setPendingApplications] = useState<PendingApplication[]>([]);
   const [memories, setMemories] = useState<AnswerMemory[]>([]);
   const [profileSaveStatus, setProfileSaveStatus] = useState("Saved");
   const [importStatus, setImportStatus] = useState("");
-  const [launchPendingId, setLaunchPendingId] = useState<string | undefined>();
   const [launchApplicationId, setLaunchApplicationId] = useState<number | undefined>();
   const skipNextProfileSave = useRef(true);
   const profileSaveTimer = useRef<number | undefined>(undefined);
@@ -35,7 +33,6 @@ function App() {
 
     const handleStorageChange = (changes: Record<string, chrome.storage.StorageChange>, areaName: string) => {
       if (areaName !== "local") return;
-      if (changes.pendingApplications) void refresh();
       if (changes.dashboardLaunch) void consumeDashboardLaunch();
       if (changes.settings) void refresh();
       if (changes.applicationsRev) void reloadApplications();
@@ -76,7 +73,6 @@ function App() {
     const launch = await getDashboardLaunch();
     if (!launch) return;
     setTab(launch.tab);
-    setLaunchPendingId(launch.pendingId);
     setLaunchApplicationId(launch.applicationId);
     await clearDashboardLaunch();
   }
@@ -89,12 +85,10 @@ function App() {
     applyTheme(nextSettings.theme);
     if (nextSettings.demoMode) {
       setApplications(createDemoApplications());
-      setPendingApplications([]);
       setMemories(createDemoMemories());
       setProfileSaveStatus("Demo changes are temporary");
     } else {
       setApplications(await db.applications.orderBy("dateApplied").reverse().toArray());
-      setPendingApplications(await getPendingApplications());
       setMemories(await db.answerMemory.orderBy("lastUsed").reverse().toArray());
     }
   }
@@ -158,7 +152,7 @@ function App() {
 
       <section className="metrics">
         <Metric label="Today" value={todayCount} />
-        <Metric label="This week" value={weekCount} />
+        <Metric label="Last 7 days" value={weekCount} />
         <Metric label="Due" value={dueCount} />
         <Metric label="Memory" value={memories.length} />
       </section>
@@ -182,14 +176,16 @@ function App() {
       {tab === "tracker" && (
         <TrackerPanel
           applications={applications}
-          pendingApplications={pendingApplications}
           refresh={refresh}
           demoMode={Boolean(settings?.demoMode)}
           setApplications={setApplications}
-          launchPendingId={launchPendingId}
+          visibleStatuses={settings?.visibleBoardStatuses ?? defaultBoardStatuses}
+          onVisibleStatusesChange={(visibleBoardStatuses) => {
+            if (!settings) return;
+            void persistSettings({ ...settings, visibleBoardStatuses });
+          }}
           launchApplicationId={launchApplicationId}
           onLaunchConsumed={() => {
-            setLaunchPendingId(undefined);
             setLaunchApplicationId(undefined);
           }}
         />
@@ -416,20 +412,20 @@ function ProfilePanel({
 
 function TrackerPanel({
   applications,
-  pendingApplications,
   refresh,
   demoMode,
   setApplications,
-  launchPendingId,
+  visibleStatuses,
+  onVisibleStatusesChange,
   launchApplicationId,
   onLaunchConsumed
 }: {
   applications: Application[];
-  pendingApplications: PendingApplication[];
   refresh: () => Promise<void>;
   demoMode: boolean;
   setApplications: React.Dispatch<React.SetStateAction<Application[]>>;
-  launchPendingId?: string;
+  visibleStatuses: ApplicationStatus[];
+  onVisibleStatusesChange: (statuses: ApplicationStatus[]) => void;
   launchApplicationId?: number;
   onLaunchConsumed: () => void;
 }) {
@@ -452,36 +448,26 @@ function TrackerPanel({
   const [postingText, setPostingText] = useState("");
   const [parseStatus, setParseStatus] = useState("");
   const [draggedId, setDraggedId] = useState<number | null>(null);
-  const [visibleStatuses, setVisibleStatuses] = useState<ApplicationStatus[]>(defaultBoardStatuses);
-  const [activePendingId, setActivePendingId] = useState<string | null>(null);
   const filtered = applications.filter((app) => `${app.company} ${app.role} ${app.status} ${app.source}`.toLowerCase().includes(query.toLowerCase()));
   const visibleFiltered = filtered.filter((app) => visibleStatuses.includes(app.status));
   const upworkStats = upworkSummary(applications);
-
-  useEffect(() => {
-    if (!launchPendingId) return;
-    const pending = pendingApplications.find((item) => item.id === launchPendingId);
-    if (!pending) return;
-    openPendingPaste(pending);
-    onLaunchConsumed();
-  }, [launchPendingId, pendingApplications, onLaunchConsumed]);
 
   useEffect(() => {
     if (launchApplicationId === undefined) return;
     const application = applications.find((item) => item.id === launchApplicationId);
     if (!application) return;
     setQuery("");
-    setVisibleStatuses((current) => current.includes(application.status)
-      ? current
-      : statuses.filter((status) => status === application.status || current.includes(status)));
-  }, [applications, launchApplicationId]);
+    if (!visibleStatuses.includes(application.status)) {
+      onVisibleStatusesChange(statuses.filter((status) => status === application.status || visibleStatuses.includes(status)));
+    }
+  }, [applications, launchApplicationId, onVisibleStatusesChange, visibleStatuses]);
 
   function toggleVisibleStatus(status: ApplicationStatus) {
-    setVisibleStatuses((current) => (
-      current.includes(status)
-        ? current.filter((item) => item !== status)
-        : statuses.filter((item) => item === status || current.includes(item))
-    ));
+    onVisibleStatusesChange(
+      visibleStatuses.includes(status)
+        ? visibleStatuses.filter((item) => item !== status)
+        : statuses.filter((item) => item === status || visibleStatuses.includes(item))
+    );
   }
 
   async function moveApplication(id: number, status: ApplicationStatus) {
@@ -583,19 +569,6 @@ function TrackerPanel({
     chrome.downloads?.download?.({ url, filename: "job-applications.csv", saveAs: true });
   }
 
-  async function skipPending(pending: PendingApplication) {
-    await removePendingApplication(pending.id);
-    await refresh();
-  }
-
-  function openPendingPaste(pending: PendingApplication) {
-    setManualOpen(false);
-    setPasteOpen(true);
-    setActivePendingId(pending.id);
-    setPostingText("");
-    setParseStatus("Paste the job details you want AI to add. Detected page data will not be used.");
-  }
-
   async function parsePosting() {
     setParseStatus("Reading posting...");
     try {
@@ -621,10 +594,6 @@ function TrackerPanel({
       else {
         await db.applications.add(application);
         await bumpApplicationsRev();
-      }
-      if (activePendingId) {
-        await removePendingApplication(activePendingId);
-        setActivePendingId(null);
       }
       setPostingText("");
       setPasteOpen(false);
@@ -726,23 +695,6 @@ function TrackerPanel({
           </div>
         </section>
       )}
-      {pendingApplications.length > 0 && (
-        <div className="pendingList">
-          {pendingApplications.map((pending) => (
-            <article className="pendingApplication" key={pending.id}>
-              <div>
-                <strong>Paste AI draft ready</strong>
-                <p>{pending.application.company} - {pending.application.role}</p>
-                <small>{pending.application.source} | Review before saving | {new Date(pending.application.dateApplied).toLocaleString()}</small>
-              </div>
-              <div className="pendingActions">
-                <button onClick={() => void skipPending(pending)}>Dismiss</button>
-                <button className="primary" onClick={() => openPendingPaste(pending)}>Paste AI</button>
-              </div>
-            </article>
-          ))}
-        </div>
-      )}
       {filtered.length === 0 && <Empty icon={<CalendarClock size={19} />} title="No applications found" body="Tracked and manual applications will appear here." />}
       <div className="statusFilter" aria-label="Visible board statuses">
         <span><ListFilter size={14} /> Statuses</span>
@@ -765,8 +717,8 @@ function TrackerPanel({
           })}
         </div>
         <div className="statusFilterActions">
-          <button type="button" onClick={() => setVisibleStatuses(defaultBoardStatuses)}>Core</button>
-          <button type="button" onClick={() => setVisibleStatuses(statuses)}>All</button>
+          <button type="button" onClick={() => onVisibleStatusesChange(defaultBoardStatuses)}>Core</button>
+          <button type="button" onClick={() => onVisibleStatusesChange(statuses)}>All</button>
         </div>
       </div>
       {visibleStatuses.length === 0 && filtered.length > 0 && <Empty icon={<ListFilter size={19} />} title="No statuses selected" body="Choose at least one status to show matching applications." />}
@@ -1007,8 +959,8 @@ function ApplicationRow({
 }
 
 function dateInputValue(value: string | undefined): string {
-  if (!value) return todayInputDate();
-  return value.slice(0, 10);
+  if (!value) return localTodayISO();
+  return localDateISO(value);
 }
 
 function emptyCompensation() {
@@ -1059,10 +1011,6 @@ function numberOrNull(value: string): number | null {
 function dateToIso(value: string): string {
   if (!value) return new Date().toISOString();
   return new Date(`${value}T12:00:00`).toISOString();
-}
-
-function todayInputDate(): string {
-  return new Date().toISOString().slice(0, 10);
 }
 
 function MemoryPanel({ memories, refresh, demoMode, setMemories }: { memories: AnswerMemory[]; refresh: () => Promise<void>; demoMode: boolean; setMemories: React.Dispatch<React.SetStateAction<AnswerMemory[]>> }) {

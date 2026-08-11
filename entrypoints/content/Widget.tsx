@@ -8,7 +8,6 @@ import {
   type Application,
   type ExtensionMessage,
   type PageContext,
-  type PendingApplication,
   type Profile,
   type Settings,
   type TrackingEntryMode,
@@ -52,7 +51,7 @@ export default function Widget({ showFab = true }: { showFab?: boolean } = {}) {
   const [postingText, setPostingText] = useState("");
   const [trackDraft, setTrackDraft] = useState<Application>();
   const [readingPosting, setReadingPosting] = useState(false);
-  const [pendingConfirm, setPendingConfirm] = useState<PendingApplication>();
+  const [showDetect, setShowDetect] = useState(false);
   const [activeTab, setActiveTab] = useState<TabId>("tracker");
   const [dueCount, setDueCount] = useState(0);
 
@@ -85,7 +84,7 @@ export default function Widget({ showFab = true }: { showFab?: boolean } = {}) {
     }, 1000);
     const onMessage = (message: ExtensionMessage, _sender: chrome.runtime.MessageSender, sendResponse: (response?: unknown) => void) => {
       if (message.kind === "SHOW_TRACK_CONFIRM") {
-        setPendingConfirm(message.pending);
+        setShowDetect(true);
         setOpen(true);
         sendResponse({ ok: true });
       }
@@ -309,14 +308,13 @@ export default function Widget({ showFab = true }: { showFab?: boolean } = {}) {
             </button>
           </header>
           {settings?.demoMode && <p className="jtDemoBadge">Demo mode</p>}
-          {pendingConfirm ? (
+          {showDetect ? (
             <div className="jtDrawerBody">
               <TrackConfirm
-                pending={pendingConfirm}
                 demoMode={settings?.demoMode ?? false}
                 defaultMode={settings?.trackingEntryMode ?? "manual"}
                 onDone={(application, notice) => {
-                  setPendingConfirm(undefined);
+                  setShowDetect(false);
                   if (application) setTracked(application);
                   setTrackNotice(notice);
                 }}
@@ -856,12 +854,10 @@ function NumberField({ label, value, onChange }: { label: string; value: number 
 }
 
 function TrackConfirm({
-  pending,
   demoMode,
   defaultMode,
   onDone
 }: {
-  pending: PendingApplication;
   demoMode: boolean;
   defaultMode: TrackingEntryMode;
   onDone: (application: Application | undefined, notice: string) => void;
@@ -873,17 +869,29 @@ function TrackConfirm({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  const readPosting = async () => {
+  const save = async (application: Application) => {
+    setSaving(true);
+    setError("");
+    const applied: Application = { ...application, status: "Applied" };
+    try {
+      const logResponse = await chrome.runtime.sendMessage({ kind: "LOG_APPLICATION", application: applied } satisfies ExtensionMessage);
+      if (!logResponse?.ok) throw new Error(logResponse?.error ?? "Tracking failed.");
+      onDone(demoMode ? undefined : applied, demoMode ? "Demo mode: not saved." : "Saved to tracker.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+      setSaving(false);
+    }
+  };
+
+  // AI paste saves straight from the pasted text — no separate review step.
+  const readAndSave = async () => {
     setReading(true);
     setError("");
     try {
-      const response = await chrome.runtime.sendMessage({
-        kind: "AI_DRAFT_APPLICATION",
-        postingText
-      } satisfies ExtensionMessage);
+      const response = await chrome.runtime.sendMessage({ kind: "AI_DRAFT_APPLICATION", postingText } satisfies ExtensionMessage);
       if (!response?.ok) throw new Error(response?.error ?? "AI could not read the job text.");
       const result = response.draft as JobPostingDraft;
-      setDraft({
+      const application: Application = {
         company: result.company,
         role: result.role,
         jobUrl: result.jobUrl,
@@ -897,7 +905,12 @@ function TrackConfirm({
         answersUsed: [],
         notes: "",
         upwork: result.upwork
-      });
+      };
+      if (!application.company.trim() && !application.role.trim()) {
+        setError("AI couldn't read a company or role from that text. Add more detail and try again.");
+        return;
+      }
+      await save(application);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     } finally {
@@ -905,29 +918,13 @@ function TrackConfirm({
     }
   };
 
-  const confirm = async () => {
+  const saveManual = async () => {
     if (!draft) return;
     if (!draft.company.trim() || !draft.role.trim()) {
       setError("Company and role are required.");
       return;
     }
-    setSaving(true);
-    setError("");
-    try {
-      const application: Application = { ...draft, status: "Applied" };
-      const logResponse = await chrome.runtime.sendMessage({ kind: "LOG_APPLICATION", application } satisfies ExtensionMessage);
-      if (!logResponse?.ok) throw new Error(logResponse?.error ?? "Tracking failed.");
-      await chrome.runtime.sendMessage({ kind: "REMOVE_PENDING_APPLICATION", id: pending.id } satisfies ExtensionMessage);
-      onDone(demoMode ? undefined : application, demoMode ? "Demo mode: not saved." : "Saved to tracker.");
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
-      setSaving(false);
-    }
-  };
-
-  const dismiss = async () => {
-    await chrome.runtime.sendMessage({ kind: "REMOVE_PENDING_APPLICATION", id: pending.id } satisfies ExtensionMessage);
-    onDone(undefined, "");
+    await save(draft);
   };
 
   const changeMode = (nextMode: TrackingEntryMode) => {
@@ -941,7 +938,7 @@ function TrackConfirm({
     <div className="jtMatch">
       <p className="jtChipHeading">Application detected</p>
       <TrackingModeSwitch mode={mode} onChange={changeMode} />
-      {mode === "ai" && !draft ? (
+      {mode === "ai" ? (
         <>
           <label className="jtField">
             <span>Paste job details for AI</span>
@@ -963,17 +960,12 @@ function TrackConfirm({
       <div className="jtFooter">
         <button
           className="jtButton"
-          onClick={() => void (draft ? confirm() : readPosting())}
-          disabled={saving || reading || (!draft && !postingText.trim())}
+          onClick={() => void (mode === "ai" ? readAndSave() : saveManual())}
+          disabled={saving || reading || (mode === "ai" && !postingText.trim())}
         >
-          {saving ? "Saving..." : reading ? "Reading with AI..." : draft ? "Save as applied" : "Fill tracker with AI"}
+          {saving ? "Saving..." : reading ? "Reading with AI..." : mode === "ai" ? "Fill tracker with AI" : "Save as applied"}
         </button>
-        {mode === "ai" && draft && (
-          <button className="jtButtonGhost" onClick={() => setDraft(undefined)} disabled={saving}>
-            Back
-          </button>
-        )}
-        <button className="jtButtonGhost" onClick={() => void dismiss()} disabled={saving || reading}>
+        <button className="jtButtonGhost" onClick={() => onDone(undefined, "")} disabled={saving || reading}>
           Dismiss
         </button>
       </div>

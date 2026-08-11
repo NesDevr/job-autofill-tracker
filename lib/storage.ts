@@ -1,9 +1,8 @@
-import { DEFAULT_SETTINGS, EMPTY_PROFILE, type DashboardLaunch, type PendingApplication, type Profile, type Settings } from "./schema";
+import { DEFAULT_SETTINGS, EMPTY_PROFILE, type DashboardLaunch, type Profile, type Settings } from "./schema";
 import { DEMO_PROFILE } from "./demo";
 
 const PROFILE_KEY = "profile";
 const SETTINGS_KEY = "settings";
-const PENDING_APPLICATIONS_KEY = "pendingApplications";
 const DASHBOARD_LAUNCH_KEY = "dashboardLaunch";
 const APPLICATIONS_REV_KEY = "applicationsRev";
 const DUE_COUNT_KEY = "dueCount";
@@ -68,26 +67,6 @@ export async function getSettings(): Promise<Settings> {
 
 export async function saveSettings(settings: Settings): Promise<void> {
   await chrome.storage.local.set({ [SETTINGS_KEY]: settings });
-}
-
-export async function getPendingApplications(): Promise<PendingApplication[]> {
-  const result = await chrome.storage.local.get(PENDING_APPLICATIONS_KEY);
-  return (result[PENDING_APPLICATIONS_KEY] as PendingApplication[] | undefined) ?? [];
-}
-
-export async function queuePendingApplication(pending: PendingApplication): Promise<void> {
-  if ((await getSettings()).demoMode) return;
-  const pendingApplications = await getPendingApplications();
-  if (pendingApplications.some((item) => item.id === pending.id)) return;
-  await chrome.storage.local.set({ [PENDING_APPLICATIONS_KEY]: [pending, ...pendingApplications] });
-}
-
-export async function removePendingApplication(id: string): Promise<void> {
-  if ((await getSettings()).demoMode) return;
-  const pendingApplications = await getPendingApplications();
-  await chrome.storage.local.set({
-    [PENDING_APPLICATIONS_KEY]: pendingApplications.filter((item) => item.id !== id)
-  });
 }
 
 // Cross-context change signal for the applications table: Dexie has no events

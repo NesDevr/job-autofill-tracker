@@ -173,15 +173,8 @@ export type Application = {
   upwork?: UpworkProposalDetails;
 };
 
-export type PendingApplication = {
-  id: string;
-  application: Application;
-  createdAt: string;
-};
-
 export type DashboardLaunch = {
   tab: "tracker";
-  pendingId?: string;
   applicationId?: number;
   createdAt: string;
 };
@@ -270,6 +263,7 @@ export type Settings = {
   matchScoring: boolean;
   customSearches: SavedSearch[];
   hiddenPresetSearches: string[];
+  visibleBoardStatuses: ApplicationStatus[];
   enabledSites: {
     greenhouse: boolean;
     lever: boolean;
@@ -290,16 +284,6 @@ export type LogApplicationRequest = {
   application: Application;
 };
 
-export type QueuePendingApplicationRequest = {
-  kind: "QUEUE_PENDING_APPLICATION";
-  pending: PendingApplication;
-};
-
-export type RemovePendingApplicationRequest = {
-  kind: "REMOVE_PENDING_APPLICATION";
-  id: string;
-};
-
 export type AutofillCurrentFormRequest = {
   kind: "AUTOFILL_CURRENT_FORM";
 };
@@ -315,7 +299,6 @@ export type GetTrackedJobRequest = {
 
 export type OpenDashboardRequest = {
   kind: "OPEN_DASHBOARD";
-  pendingId?: string;
   applicationId?: number;
 };
 
@@ -344,12 +327,10 @@ export type OpenWidgetActiveTabRequest = {
 
 export type ApplicationSubmittedRequest = {
   kind: "APPLICATION_SUBMITTED";
-  pending: PendingApplication;
 };
 
 export type ShowTrackConfirmRequest = {
   kind: "SHOW_TRACK_CONFIRM";
-  pending: PendingApplication;
 };
 
 export type UpdateApplicationRequest = {
@@ -398,8 +379,6 @@ export type PageContext = {
 export type ExtensionMessage =
   | MapFieldsRequest
   | LogApplicationRequest
-  | QueuePendingApplicationRequest
-  | RemovePendingApplicationRequest
   | AutofillCurrentFormRequest
   | TrackCurrentApplicationRequest
   | GetTrackedJobRequest
@@ -493,6 +472,7 @@ export const DEFAULT_SETTINGS: Settings = {
   matchScoring: false,
   customSearches: [],
   hiddenPresetSearches: [],
+  visibleBoardStatuses: ["Applied", "Interview", "Rejected"],
   enabledSites: {
     greenhouse: true,
     lever: true,

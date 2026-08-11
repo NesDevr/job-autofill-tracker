@@ -4,7 +4,7 @@ import {
   fillCurrentForm,
   isAllowedJobPage,
   isTopPageWithEmbeddedJobForm,
-  queueTrackCurrentApplication,
+  trackCurrentApplication,
   watchSubmit
 } from "./engine";
 import { getProfile, getSettings } from "../../lib/storage";
@@ -51,7 +51,7 @@ export default defineContentScript({
       }
 
       if (message.kind === "TRACK_CURRENT_APPLICATION" && isAllowedJobPage() && !isTopPageWithEmbeddedJobForm()) {
-        sendResponse({ ok: true, pending: queueTrackCurrentApplication() });
+        sendResponse({ ok: true, application: trackCurrentApplication() });
         return false;
       }
       return false;

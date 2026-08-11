@@ -3,7 +3,7 @@ import { db } from "../lib/db";
 import { createDemoApplications } from "../lib/demo";
 import { canonicalJobUrl, isFollowUpDue, localTodayISO } from "../lib/jobs";
 import { deterministicValue, memoryValue, rememberAnswer } from "../lib/mapping";
-import { bumpApplicationsRev, getProfile, getSettings, queuePendingApplication, removePendingApplication, setDashboardLaunch, setDueCount } from "../lib/storage";
+import { bumpApplicationsRev, getProfile, getSettings, setDashboardLaunch, setDueCount } from "../lib/storage";
 import type { ExtensionMessage, FieldFill } from "../lib/schema";
 
 export default defineBackground({
@@ -67,20 +67,9 @@ async function handleMessage(message: ExtensionMessage, sender: chrome.runtime.M
     return { ok: true };
   }
 
-  if (message.kind === "QUEUE_PENDING_APPLICATION") {
-    await queuePendingApplication(message.pending);
-    return { ok: true };
-  }
-
-  if (message.kind === "REMOVE_PENDING_APPLICATION") {
-    await removePendingApplication(message.id);
-    return { ok: true };
-  }
-
   if (message.kind === "APPLICATION_SUBMITTED") {
     if (sender.tab?.id === undefined) throw new Error("Submission events must come from a page tab.");
-    await queuePendingApplication(message.pending);
-    await chrome.tabs.sendMessage(sender.tab.id, { kind: "SHOW_TRACK_CONFIRM", pending: message.pending } satisfies ExtensionMessage);
+    await chrome.tabs.sendMessage(sender.tab.id, { kind: "SHOW_TRACK_CONFIRM" } satisfies ExtensionMessage);
     return { ok: true };
   }
 
@@ -151,7 +140,6 @@ async function handleMessage(message: ExtensionMessage, sender: chrome.runtime.M
   if (message.kind === "OPEN_DASHBOARD") {
     await setDashboardLaunch({
       tab: "tracker",
-      pendingId: message.pendingId,
       applicationId: message.applicationId,
       createdAt: new Date().toISOString()
     });
