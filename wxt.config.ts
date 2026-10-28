@@ -7,7 +7,7 @@ export default defineConfig({
   manifest: {
     name: "Job Autofill + Tracker",
     description: "Fill job applications from a local profile, draft screening answers, and track submissions.",
-    version: "0.1.0",
+    version: "0.1.1",
     permissions: ["storage", "unlimitedStorage", "activeTab", "downloads", "scripting", "alarms"],
     host_permissions: ["https://*/*", "http://*/*", "https://api.openai.com/*"],
     action: {
