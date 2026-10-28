@@ -3,3 +3,11 @@ node_modules/
 .wxt/
 dist/
 *.log
+
+# Local agent instructions.
+/AGENTS.md
+
+# Local personal profiles must never be committed.
+/profiles/*.json
+# Temporary resume imports may contain personal data.
+/tmp/cv-profile-import/
