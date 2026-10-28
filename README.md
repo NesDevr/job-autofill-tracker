@@ -63,7 +63,7 @@ It requests access to `https://api.openai.com/*` for optional AI features.
 ## Commands
 
 ```powershell
-npm install
+npm ci
 npm run compile
 npm run test:backup
 node scripts/test-linkedin-probes.mjs
@@ -77,6 +77,8 @@ Load the generated development extension from `.output/chrome-mv3` in Chrome.
 ## Security Notes
 
 Run `npm audit` and `npm audit --omit=dev` before publishing a release. Dependency overrides are used only for patched transitive development packages.
+
+Use npm 11.19.0 or newer. The project enforces a 72-hour minimum age for newly resolved package releases and keeps installation scripts enabled. See the [2026-10-28 security review](docs/security-review-2026-10-28.md) for the dependency fixes and the scoped `node-forge@1.4.1` security exception.
 
 ## License
 
