@@ -11,7 +11,16 @@ export async function getProfile(): Promise<Profile> {
   const result = await chrome.storage.local.get([PROFILE_KEY, SETTINGS_KEY]);
   const storedSettings = result[SETTINGS_KEY] as Partial<Settings> | undefined;
   if (storedSettings?.demoMode) return structuredClone(DEMO_PROFILE);
-  const stored = result[PROFILE_KEY] as Partial<Profile> | undefined;
+  return hydrateProfile(result[PROFILE_KEY] as Partial<Profile> | undefined);
+}
+
+// Backups always use the real saved profile, including while demo mode is on.
+export async function getStoredProfile(): Promise<Profile> {
+  const result = await chrome.storage.local.get(PROFILE_KEY);
+  return hydrateProfile(result[PROFILE_KEY] as Partial<Profile> | undefined);
+}
+
+function hydrateProfile(stored: Partial<Profile> | undefined): Profile {
   return {
     ...EMPTY_PROFILE,
     ...stored,

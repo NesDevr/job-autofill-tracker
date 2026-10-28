@@ -1,13 +1,22 @@
 import { analyzeJobFit, draftApplicationFromJobPosting, draftSingleAnswer, enrichProfileFromText } from "../lib/ai";
 import { db } from "../lib/db";
 import { createDemoApplications } from "../lib/demo";
-import { canonicalJobUrl, isFollowUpDue, localTodayISO } from "../lib/jobs";
+import { applicationsAtCompany, canonicalJobUrl, isFollowUpDue, localTodayISO } from "../lib/jobs";
 import { deterministicValue, memoryValue, rememberAnswer } from "../lib/mapping";
 import { bumpApplicationsRev, getProfile, getSettings, setDashboardLaunch, setDueCount } from "../lib/storage";
 import type { ExtensionMessage, FieldFill } from "../lib/schema";
+import { syncLinkedInProbeProtection } from "../lib/linkedinProbeProtection";
 
 export default defineBackground({
   main() {
+    const syncProbeProtection = () => {
+      void syncLinkedInProbeProtection().catch((error: unknown) => {
+        console.error("Could not update LinkedIn extension probe protection", error);
+      });
+    };
+    syncProbeProtection();
+    chrome.runtime.onInstalled.addListener(syncProbeProtection);
+
     chrome.action.onClicked.addListener(() => {
       void chrome.tabs.create({ url: chrome.runtime.getURL("options.html"), active: true });
     });
@@ -40,6 +49,7 @@ export default defineBackground({
     void refreshDueBadge();
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area !== "local") return;
+      if (changes.settings) syncProbeProtection();
       if (changes.applicationsRev || changes.settings) void refreshDueBadge();
     });
     chrome.alarms.create("dueCheck", { periodInMinutes: 60 });
@@ -53,7 +63,9 @@ async function refreshDueBadge(): Promise<void> {
   const settings = await getSettings();
   const applications = settings.demoMode ? createDemoApplications() : await db.applications.toArray();
   const today = localTodayISO();
-  const count = applications.filter((application) => isFollowUpDue(application, today)).length;
+  const count = applications.filter((application) =>
+    (settings.freelanceOptions || (!application.upwork && !application.outreach)) && isFollowUpDue(application, today)
+  ).length;
   await chrome.action.setBadgeBackgroundColor({ color: "#dc2626" });
   await chrome.action.setBadgeText({ text: count > 0 ? String(count) : "" });
   await setDueCount(count);
@@ -130,11 +142,10 @@ async function handleMessage(message: ExtensionMessage, sender: chrome.runtime.M
   }
 
   if (message.kind === "GET_TRACKED_JOB") {
-    if ((await getSettings()).demoMode) return { ok: true, tracked: undefined };
+    const applications = (await getSettings()).demoMode ? createDemoApplications() : await db.applications.toArray();
     const canonical = canonicalJobUrl(message.url);
-    const applications = await db.applications.toArray();
     const found = applications.find((application) => canonicalJobUrl(application.jobUrl) === canonical);
-    return { ok: true, tracked: found };
+    return { ok: true, tracked: found, companyApplications: applicationsAtCompany(applications, message.company) };
   }
 
   if (message.kind === "OPEN_DASHBOARD") {

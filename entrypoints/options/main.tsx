@@ -3,18 +3,43 @@ import { createRoot } from "react-dom/client";
 import { BriefcaseBusiness, Building2, CalendarClock, Check, ChevronDown, ChevronRight, Copy, Download, FileText, KeyRound, ListFilter, MapPin, Plus, Save, Search, Sparkles, Trash2, Upload, UserRound, Wand2, X } from "lucide-react";
 import { draftApplicationFromJobPosting, draftSingleAnswer, enrichProfileFromText, importProfileFromCv } from "../../lib/ai";
 import { normalizeCompensationCurrency } from "../../lib/compensation";
+import { createBackup, MAX_BACKUP_BYTES, parseBackupJson, restoreBackup, type FullBackup } from "../../lib/backup";
 import { db } from "../../lib/db";
 import { createDemoApplications, createDemoMemories } from "../../lib/demo";
 import { applicationToClipboardText, localDateISO, localTodayISO } from "../../lib/jobs";
 import { questionHash } from "../../lib/mapping";
-import { APPLICATION_STATUSES, EMPTY_PROFILE, type AnswerMemory, type Application, type ApplicationStatus, type CompensationCurrency, type CompensationPeriod, type Experience, type PersonalProject, type Profile, type Settings, type ThemeMode, type TrackingEntryMode, type UpworkProposalStatus } from "../../lib/schema";
-import { bumpApplicationsRev, clearDashboardLaunch, getDashboardLaunch, getProfile, getSettings, saveProfile, saveSettings } from "../../lib/storage";
+import { MAX_PROFILE_JSON_BYTES, parseProfileJson, type ProfileImportPreview } from "../../lib/profileImport";
+import { APPLICATION_STATUSES, EMPTY_PROFILE, OUTREACH_CONTACT_METHODS, OUTREACH_STATUSES, type AnswerMemory, type Application, type ApplicationStatus, type CompensationCurrency, type CompensationPeriod, type Experience, type OutreachStatus, type PersonalProject, type Profile, type Settings, type ThemeMode, type TrackingEntryMode, type UpworkProposalStatus } from "../../lib/schema";
+import { bumpApplicationsRev, clearDashboardLaunch, getDashboardLaunch, getProfile, getSettings, getStoredProfile, saveProfile, saveSettings } from "../../lib/storage";
 import { applyTheme } from "../../lib/theme";
+import { changeOutreachStatus, opportunityStatus, opportunityType, outreachSummary, type OpportunityType } from "../../lib/outreach";
 import { changeUpworkStatus, UPWORK_PROPOSAL_STATUSES, upworkRate, upworkSummary } from "../../lib/upwork";
 import "./styles.css";
 
 const statuses = APPLICATION_STATUSES;
 const defaultBoardStatuses: ApplicationStatus[] = ["Applied", "Interview", "Rejected"];
+
+function createManualDraft(type: "job" | "outreach" = "job") {
+  return {
+    type,
+    company: "",
+    role: "",
+    jobUrl: "",
+    source: type === "outreach" ? "Local outreach" : "Manual",
+    status: "Applied" as ApplicationStatus,
+    outreachStatus: "Lead" as OutreachStatus,
+    contactName: "",
+    contactMethod: "" as NonNullable<Application["outreach"]>["contactMethod"],
+    contactDetails: "",
+    nextActionDate: "",
+    notes: "",
+    compensationText: "",
+    compensationCurrency: "" as CompensationCurrency,
+    compensationMin: "",
+    compensationMax: "",
+    compensationPeriod: "" as CompensationPeriod
+  };
+}
 
 function App() {
   const [tab, setTab] = useState<"profile" | "tracker" | "memory" | "settings">("tracker");
@@ -25,14 +50,19 @@ function App() {
   const [profileSaveStatus, setProfileSaveStatus] = useState("Saved");
   const [importStatus, setImportStatus] = useState("");
   const [launchApplicationId, setLaunchApplicationId] = useState<number | undefined>();
+  const [backupBusy, setBackupBusy] = useState(false);
   const skipNextProfileSave = useRef(true);
   const profileSaveTimer = useRef<number | undefined>(undefined);
+  const profileSaveInFlight = useRef<Promise<void> | undefined>(undefined);
+  const settingsSaveInFlight = useRef<Promise<void> | undefined>(undefined);
+  const restoringBackup = useRef(false);
 
   useEffect(() => {
     void loadInitialState();
 
     const handleStorageChange = (changes: Record<string, chrome.storage.StorageChange>, areaName: string) => {
       if (areaName !== "local") return;
+      if (restoringBackup.current) return;
       if (changes.dashboardLaunch) void consumeDashboardLaunch();
       if (changes.settings) void refresh();
       if (changes.applicationsRev) void reloadApplications();
@@ -47,6 +77,7 @@ function App() {
       skipNextProfileSave.current = false;
       return;
     }
+    if (restoringBackup.current) return;
 
     if (settings?.demoMode) {
       setProfileSaveStatus("Demo changes are temporary");
@@ -56,7 +87,9 @@ function App() {
     window.clearTimeout(profileSaveTimer.current);
     setProfileSaveStatus("Saving...");
     profileSaveTimer.current = window.setTimeout(() => {
-      void saveProfile(profile)
+      const pending = saveProfile(profile);
+      profileSaveInFlight.current = pending;
+      void pending
         .then(() => setProfileSaveStatus(`Saved ${new Date().toLocaleTimeString()}`))
         .catch((error: unknown) => setProfileSaveStatus(error instanceof Error ? error.message : String(error)));
     }, 550);
@@ -105,8 +138,46 @@ function App() {
     const demoModeChanged = next.demoMode !== settings?.demoMode;
     setSettings(next);
     applyTheme(next.theme);
-    await saveSettings(next);
+    const pending = saveSettings(next);
+    settingsSaveInFlight.current = pending;
+    await pending;
     if (demoModeChanged) await refresh();
+  }
+
+  async function exportAllData() {
+    if (!settings) return;
+    const backup = await createBackup(settings.demoMode ? await getStoredProfile() : profile, settings);
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+    if (blob.size > MAX_BACKUP_BYTES) throw new Error("Backup is larger than the supported 50 MB limit.");
+    const url = URL.createObjectURL(blob);
+    try {
+      await chrome.downloads.download({ url, filename: `job-tracker-backup-${backup.exportedAt.slice(0, 10)}.json`, saveAs: true });
+    } finally {
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    }
+  }
+
+  async function importAllData(backup: FullBackup) {
+    restoringBackup.current = true;
+    setBackupBusy(true);
+    window.clearTimeout(profileSaveTimer.current);
+    try {
+      // Finish pending edits before taking the rollback snapshot.
+      await Promise.allSettled([profileSaveInFlight.current, settingsSaveInFlight.current]);
+      if (!settings?.demoMode) await saveProfile(profile);
+      await restoreBackup(backup);
+      // The restore succeeded even if a refresh signal cannot be written.
+      await bumpApplicationsRev().catch(() => undefined);
+      try {
+        await refresh();
+      } catch {
+        throw new Error("All data was restored, but the dashboard could not refresh. Reload the dashboard to see your imported data.");
+      }
+      setProfileSaveStatus(backup.settings.demoMode ? "Demo changes are temporary" : "Saved from backup");
+    } finally {
+      restoringBackup.current = false;
+      setBackupBusy(false);
+    }
   }
 
   async function importCv(file: File) {
@@ -135,16 +206,17 @@ function App() {
     }
   }
 
-  const dueCount = applications.filter((app) => app.nextActionDate && new Date(app.nextActionDate) <= new Date()).length;
-  const weekCount = applications.filter((app) => Date.now() - new Date(app.dateApplied).getTime() < 7 * 24 * 60 * 60 * 1000).length;
+  const shownApplications = settings?.freelanceOptions ? applications : applications.filter((app) => !app.upwork && !app.outreach);
+  const dueCount = shownApplications.filter((app) => app.nextActionDate && new Date(app.nextActionDate) <= new Date()).length;
+  const weekCount = shownApplications.filter((app) => Date.now() - new Date(app.dateApplied).getTime() < 7 * 24 * 60 * 60 * 1000).length;
   const todayKey = new Date().toDateString();
-  const todayCount = applications.filter((app) => new Date(app.dateApplied).toDateString() === todayKey).length;
+  const todayCount = shownApplications.filter((app) => new Date(app.dateApplied).toDateString() === todayKey).length;
 
   return (
-    <main className="shell">
+    <main className="shell" inert={backupBusy} aria-busy={backupBusy}>
       <header className="topbar">
         <div>
-          <p className="eyebrow">Local-first job ops</p>
+          <p className="eyebrow">Local-first opportunity ops</p>
           <h1>Autofill desk</h1>
         </div>
         {settings?.demoMode && <span className="demoBadge"><Sparkles size={13} /> Demo mode</span>}
@@ -178,6 +250,7 @@ function App() {
           applications={applications}
           refresh={refresh}
           demoMode={Boolean(settings?.demoMode)}
+          freelanceOptions={Boolean(settings?.freelanceOptions)}
           setApplications={setApplications}
           visibleStatuses={settings?.visibleBoardStatuses ?? defaultBoardStatuses}
           onVisibleStatusesChange={(visibleBoardStatuses) => {
@@ -191,7 +264,7 @@ function App() {
         />
       )}
       {tab === "memory" && <MemoryPanel memories={memories} refresh={refresh} demoMode={Boolean(settings?.demoMode)} setMemories={setMemories} />}
-      {tab === "settings" && settings && <SettingsPanel settings={settings} save={persistSettings} />}
+      {tab === "settings" && settings && <SettingsPanel settings={settings} save={persistSettings} exportAll={exportAllData} importAll={importAllData} />}
     </main>
   );
 }
@@ -230,6 +303,8 @@ function ProfilePanel({
   const [smartAddText, setSmartAddText] = useState("");
   const [smartAddStatus, setSmartAddStatus] = useState("");
   const [smartAdding, setSmartAdding] = useState(false);
+  const [jsonImport, setJsonImport] = useState<ProfileImportPreview | null>(null);
+  const [jsonImportStatus, setJsonImportStatus] = useState("");
 
   function update(path: string, value: string | boolean) {
     const { resumeFile, coverLetterFile, ...profileFacts } = profile;
@@ -280,6 +355,29 @@ function ProfilePanel({
         dataUrl: await readFileDataUrl(file)
       }
     });
+  }
+
+  async function readProfileJson(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setJsonImport(null);
+    try {
+      if (!file.name.toLowerCase().endsWith(".json")) throw new Error("Choose a .json profile file.");
+      if (file.size > MAX_PROFILE_JSON_BYTES) throw new Error("Profile JSON is larger than 1 MB.");
+      const preview = parseProfileJson(await file.text(), profile);
+      setJsonImport(preview);
+      setJsonImportStatus("Validated. Review the summary before applying.");
+    } catch (error) {
+      setJsonImportStatus(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  function applyProfileJson() {
+    if (!jsonImport) return;
+    setProfile(jsonImport.profile);
+    setJsonImport(null);
+    setJsonImportStatus("Profile imported. Autosave is updating local storage.");
   }
 
   return (
@@ -333,6 +431,26 @@ function ProfilePanel({
         <span>{profile.coverLetterFile ? `Cover letter: ${profile.coverLetterFile.name}` : "Store cover letter"}</span>
         <input type="file" accept="application/pdf,.doc,.docx" onChange={(event) => void storeCoverLetter(event)} />
       </label>
+      <label className="importCv secondaryUpload">
+        <Upload size={16} />
+        <span>Import Profile JSON</span>
+        <input type="file" accept="application/json,.json" onChange={(event) => void readProfileJson(event)} />
+      </label>
+      {jsonImport && (
+        <div className="jsonImportPreview" role="status">
+          <strong>{jsonImport.summary.name}</strong>
+          <span>{jsonImport.summary.currentRole}</span>
+          <span>
+            {jsonImport.summary.experienceCount} roles · {jsonImport.summary.projectCount} projects · {jsonImport.summary.skillCount} skills
+          </span>
+          <p>The imported facts will replace the current profile. Stored CV and cover-letter files will be preserved.</p>
+          <div>
+            <button type="button" onClick={applyProfileJson}><Check size={15} /> Apply imported profile</button>
+            <button type="button" className="secondary" onClick={() => { setJsonImport(null); setJsonImportStatus("Import canceled."); }}><X size={15} /> Cancel</button>
+          </div>
+        </div>
+      )}
+      {jsonImportStatus && <p className="saveStamp">{jsonImportStatus}</p>}
       {importStatus && <p className="saveStamp">{importStatus}</p>}
 
       <Section title="Identity & contact" hint="Reusable facts copied directly into applications.">
@@ -414,6 +532,7 @@ function TrackerPanel({
   applications,
   refresh,
   demoMode,
+  freelanceOptions,
   setApplications,
   visibleStatuses,
   onVisibleStatusesChange,
@@ -423,6 +542,7 @@ function TrackerPanel({
   applications: Application[];
   refresh: () => Promise<void>;
   demoMode: boolean;
+  freelanceOptions: boolean;
   setApplications: React.Dispatch<React.SetStateAction<Application[]>>;
   visibleStatuses: ApplicationStatus[];
   onVisibleStatusesChange: (statuses: ApplicationStatus[]) => void;
@@ -431,36 +551,46 @@ function TrackerPanel({
 }) {
   const [query, setQuery] = useState("");
   const [manualOpen, setManualOpen] = useState(false);
-  const [manualDraft, setManualDraft] = useState({
-    company: "",
-    role: "",
-    jobUrl: "",
-    source: "Manual",
-    status: "Applied" as ApplicationStatus,
-    compensationText: "",
-    compensationCurrency: "" as CompensationCurrency,
-    compensationMin: "",
-    compensationMax: "",
-    compensationPeriod: "" as CompensationPeriod
-  });
+  const [manualDraft, setManualDraft] = useState(() => createManualDraft());
   const [pasteOpen, setPasteOpen] = useState(false);
   const [upworkOpen, setUpworkOpen] = useState(false);
+  const [pipeline, setPipeline] = useState<OpportunityType>("jobs");
+  const [visibleOutreachStatuses, setVisibleOutreachStatuses] = useState<OutreachStatus[]>(OUTREACH_STATUSES);
   const [postingText, setPostingText] = useState("");
   const [parseStatus, setParseStatus] = useState("");
   const [draggedId, setDraggedId] = useState<number | null>(null);
-  const filtered = applications.filter((app) => `${app.company} ${app.role} ${app.status} ${app.source}`.toLowerCase().includes(query.toLowerCase()));
-  const visibleFiltered = filtered.filter((app) => visibleStatuses.includes(app.status));
+  const activePipeline = freelanceOptions ? pipeline : "jobs";
+  const pipelineApplications = applications.filter((app) => opportunityType(app) === activePipeline);
+  const filtered = pipelineApplications.filter((app) =>
+    `${app.company} ${app.role} ${app.status} ${app.source} ${app.outreach?.status ?? ""} ${app.outreach?.contactName ?? ""} ${app.outreach?.contactDetails ?? ""}`
+      .toLowerCase().includes(query.toLowerCase())
+  );
+  const activeStatuses: Array<ApplicationStatus | OutreachStatus> = activePipeline === "outreach" ? visibleOutreachStatuses : visibleStatuses;
+  const boardStatuses: Array<ApplicationStatus | OutreachStatus> = activePipeline === "outreach" ? OUTREACH_STATUSES : statuses;
+  const visibleFiltered = filtered.filter((app) => activeStatuses.includes(opportunityStatus(app)));
   const upworkStats = upworkSummary(applications);
+  const localStats = outreachSummary(applications);
+
+  useEffect(() => {
+    if (freelanceOptions) return;
+    setPipeline("jobs");
+    setManualDraft(createManualDraft("job"));
+    setManualOpen(false);
+  }, [freelanceOptions]);
 
   useEffect(() => {
     if (launchApplicationId === undefined) return;
     const application = applications.find((item) => item.id === launchApplicationId);
     if (!application) return;
     setQuery("");
-    if (!visibleStatuses.includes(application.status)) {
+    setPipeline(freelanceOptions ? opportunityType(application) : "jobs");
+    if (application.outreach && !visibleOutreachStatuses.includes(application.outreach.status)) {
+      setVisibleOutreachStatuses(OUTREACH_STATUSES.filter((status) => status === application.outreach?.status || visibleOutreachStatuses.includes(status)));
+    }
+    if (!application.outreach && !visibleStatuses.includes(application.status)) {
       onVisibleStatusesChange(statuses.filter((status) => status === application.status || visibleStatuses.includes(status)));
     }
-  }, [applications, launchApplicationId, onVisibleStatusesChange, visibleStatuses]);
+  }, [applications, freelanceOptions, launchApplicationId, onVisibleStatusesChange, visibleOutreachStatuses, visibleStatuses]);
 
   function toggleVisibleStatus(status: ApplicationStatus) {
     onVisibleStatusesChange(
@@ -470,11 +600,24 @@ function TrackerPanel({
     );
   }
 
-  async function moveApplication(id: number, status: ApplicationStatus) {
+  function toggleVisibleOutreachStatus(status: OutreachStatus) {
+    setVisibleOutreachStatuses((current) =>
+      current.includes(status)
+        ? current.filter((item) => item !== status)
+        : OUTREACH_STATUSES.filter((item) => item === status || current.includes(item))
+    );
+  }
+
+  async function moveApplication(id: number, status: ApplicationStatus | OutreachStatus) {
+    const application = applications.find((item) => item.id === id);
+    if (!application) throw new Error("Tracked opportunity was not found.");
+    const patch = application.outreach
+      ? changeOutreachStatus(application, status as OutreachStatus)
+      : { status: status as ApplicationStatus };
     if (demoMode) {
-      setApplications((current) => current.map((app) => app.id === id ? { ...app, status } : app));
+      setApplications((current) => current.map((app) => app.id === id ? { ...app, ...patch } : app));
     } else {
-      await db.applications.update(id, { status });
+      await db.applications.update(id, patch);
       await bumpApplicationsRev();
       await refresh();
     }
@@ -482,8 +625,12 @@ function TrackerPanel({
   }
 
   async function addManual() {
+    if (!freelanceOptions && (manualDraft.type === "outreach" || manualDraft.source.trim().toLowerCase() === "upwork")) {
+      setParseStatus("Enable freelance options in Settings to add this opportunity.");
+      return;
+    }
     if (!manualDraft.company.trim() || !manualDraft.role.trim()) {
-      setParseStatus("Company and role are required.");
+      setParseStatus(manualDraft.type === "outreach" ? "Business and service are required." : "Company and role are required.");
       return;
     }
 
@@ -492,16 +639,17 @@ function TrackerPanel({
       company: manualDraft.company.trim(),
       role: manualDraft.role.trim(),
       jobUrl: manualDraft.jobUrl.trim(),
-      source: manualDraft.source.trim(),
+      source: manualDraft.type === "outreach" ? "Local outreach" : manualDraft.source.trim(),
       dateApplied: new Date().toISOString(),
-      status: manualDraft.status,
+      status: manualDraft.type === "outreach" ? "Saved" : manualDraft.status,
       location: "",
       workMode: "",
-      compensation: compensationFromDraft(manualDraft),
+      compensation: manualDraft.type === "outreach" ? undefined : compensationFromDraft(manualDraft),
       jobDescription: "",
       answersUsed: [],
-      notes: "",
-      upwork: manualDraft.source.trim().toLowerCase() === "upwork" ? {
+      notes: manualDraft.type === "outreach" ? manualDraft.notes.trim() : "",
+      nextActionDate: manualDraft.type === "outreach" ? manualDraft.nextActionDate || undefined : undefined,
+      upwork: manualDraft.type === "job" && manualDraft.source.trim().toLowerCase() === "upwork" ? {
         status: "Submitted",
         contractType: manualDraft.compensationPeriod === "hour" ? "hourly" : manualDraft.compensationPeriod === "one-time" ? "fixed" : "",
         proposedAmount: numberOrUndefined(manualDraft.compensationMin) ?? null,
@@ -509,6 +657,13 @@ function TrackerPanel({
         baseConnects: null,
         boostBid: null,
         boostCharged: null
+      } : undefined,
+      outreach: manualDraft.type === "outreach" ? {
+        status: manualDraft.outreachStatus,
+        contactName: manualDraft.contactName.trim(),
+        contactMethod: manualDraft.contactMethod,
+        contactDetails: manualDraft.contactDetails.trim(),
+        contactedAt: manualDraft.outreachStatus === "Lead" ? undefined : new Date().toISOString()
       } : undefined
     };
     if (demoMode) setApplications((current) => [application, ...current]);
@@ -516,29 +671,20 @@ function TrackerPanel({
       await db.applications.add(application);
       await bumpApplicationsRev();
     }
-    setManualDraft({
-      company: "",
-      role: "",
-      jobUrl: "",
-      source: "Manual",
-      status: "Applied",
-      compensationText: "",
-      compensationCurrency: "",
-      compensationMin: "",
-      compensationMax: "",
-      compensationPeriod: ""
-    });
+    setPipeline(manualDraft.type === "outreach" ? "outreach" : manualDraft.source.trim().toLowerCase() === "upwork" ? "upwork" : "jobs");
+    setManualDraft(createManualDraft(manualDraft.type));
     setManualOpen(false);
     setParseStatus("");
     if (!demoMode) await refresh();
   }
 
   function exportCsv() {
-    const rows = [["company", "role", "status", "source", "dateApplied", "nextActionDate", "location", "workMode", "compensation", "compensationCurrency", "compensationMin", "compensationMax", "compensationPeriod", "jobUrl", "jobDescription", "notes", "upworkStatus", "upworkContractType", "upworkProposedAmount", "upworkCurrency", "upworkBaseConnects", "upworkBoostBid", "upworkBoostCharged", "upworkRespondedAt", "upworkInterviewedAt", "upworkOfferedAt", "upworkHiredAt"]];
-    for (const app of applications) rows.push([
+    const rows = [["opportunityType", "company", "roleOrService", "status", "source", "dateAppliedOrAdded", "nextActionDate", "location", "workMode", "compensation", "compensationCurrency", "compensationMin", "compensationMax", "compensationPeriod", "jobUrlOrWebsite", "jobDescription", "notes", "contactName", "contactMethod", "contactDetails", "firstContactedAt", "upworkStatus", "upworkContractType", "upworkProposedAmount", "upworkCurrency", "upworkBaseConnects", "upworkBoostBid", "upworkBoostCharged", "upworkRespondedAt", "upworkInterviewedAt", "upworkOfferedAt", "upworkHiredAt"]];
+    for (const app of applications.filter((item) => freelanceOptions || opportunityType(item) === "jobs")) rows.push([
+      opportunityType(app),
       app.company,
       app.role,
-      app.status,
+      app.outreach?.status ?? app.status,
       app.source,
       app.dateApplied,
       app.nextActionDate ?? "",
@@ -552,6 +698,10 @@ function TrackerPanel({
       app.jobUrl,
       app.jobDescription ?? "",
       app.notes,
+      app.outreach?.contactName ?? "",
+      app.outreach?.contactMethod ?? "",
+      app.outreach?.contactDetails ?? "",
+      app.outreach?.contactedAt ?? "",
       app.upwork?.status ?? "",
       app.upwork?.contractType ?? "",
       app.upwork?.proposedAmount == null ? "" : String(app.upwork.proposedAmount),
@@ -566,7 +716,7 @@ function TrackerPanel({
     ]);
     const csv = rows.map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(",")).join("\n");
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-    chrome.downloads?.download?.({ url, filename: "job-applications.csv", saveAs: true });
+    chrome.downloads?.download?.({ url, filename: "opportunity-tracker.csv", saveAs: true });
   }
 
   async function parsePosting() {
@@ -574,6 +724,7 @@ function TrackerPanel({
     try {
       const settings = await getSettings();
       const draft = await draftApplicationFromJobPosting(postingText, settings);
+      if (draft.upwork && !freelanceOptions) throw new Error("Enable freelance options in Settings to add Upwork proposals.");
       const application: Application = {
         id: demoMode ? Math.max(0, ...applications.map((app) => app.id ?? 0)) + 1 : undefined,
         company: draft.company,
@@ -606,21 +757,35 @@ function TrackerPanel({
 
   return (
     <section className="panel">
+      <div className="pipelineSwitch" aria-label="Opportunity pipeline">
+        <button className={pipeline === "jobs" ? "active" : ""} onClick={() => setPipeline("jobs")}>
+          Jobs <strong>{applications.filter((app) => opportunityType(app) === "jobs").length}</strong>
+        </button>
+        {freelanceOptions && <button className={pipeline === "upwork" ? "active" : ""} onClick={() => setPipeline("upwork")}>
+          Upwork <strong>{upworkStats.count}</strong>
+        </button>}
+        {freelanceOptions && <button className={pipeline === "outreach" ? "active outreach" : "outreach"} onClick={() => setPipeline("outreach")}>
+          Local outreach <strong>{localStats.count}</strong>
+        </button>}
+      </div>
       <div className="toolbar trackerToolbar">
         <label className="searchBox">
           <Search size={15} />
-          <input aria-label="Search applications" placeholder="Search roles or companies" value={query} onChange={(event) => setQuery(event.target.value)} />
+          <input aria-label="Search opportunities" placeholder={pipeline === "outreach" ? "Search businesses or contacts" : "Search roles or companies"} value={query} onChange={(event) => setQuery(event.target.value)} />
         </label>
         <button
           aria-expanded={manualOpen}
           onClick={() => {
             setManualOpen(!manualOpen);
-            if (!manualOpen) setPasteOpen(false);
+            if (!manualOpen) {
+              setPasteOpen(false);
+              setManualDraft(pipeline === "outreach" ? createManualDraft("outreach") : { ...createManualDraft(), source: pipeline === "upwork" ? "Upwork" : "Manual" });
+            }
           }}
         >
-          <Plus size={14} /> Add manually
+          <Plus size={14} /> {pipeline === "outreach" ? "Add local lead" : "Add manually"}
         </button>
-        <button
+        {pipeline !== "outreach" && <button
           aria-expanded={pasteOpen}
           onClick={() => {
             setPasteOpen(!pasteOpen);
@@ -628,8 +793,8 @@ function TrackerPanel({
           }}
         >
           <Sparkles size={14} /> Add with AI
-        </button>
-        {upworkStats.count > 0 && (
+        </button>}
+        {pipeline === "upwork" && upworkStats.count > 0 && (
           <button
             aria-controls="upwork-summary"
             aria-expanded={upworkOpen}
@@ -640,7 +805,7 @@ function TrackerPanel({
         )}
         <button className="iconButton" title="Export CSV" onClick={exportCsv}><Download size={16} /></button>
       </div>
-      {upworkStats.count > 0 && upworkOpen && (
+      {pipeline === "upwork" && upworkStats.count > 0 && upworkOpen && (
         <section id="upwork-summary" className="upworkSummary" aria-label="Upwork proposal performance">
           <div><span>Upwork proposals</span><strong>{upworkStats.count}</strong></div>
           <div><span>Connects spent</span><strong>{upworkStats.actualConnects}</strong></div>
@@ -650,35 +815,78 @@ function TrackerPanel({
           <div><span>Hires</span><strong>{upworkStats.hires}</strong></div>
         </section>
       )}
+      {pipeline === "outreach" && localStats.count > 0 && (
+        <section className="outreachSummary" aria-label="Local outreach performance">
+          <div><span>Local leads</span><strong>{localStats.count}</strong></div>
+          <div><span>Contacted</span><strong>{localStats.contacted}</strong></div>
+          <div><span>Replies</span><strong>{localStats.replies}</strong></div>
+          <div><span>Meetings</span><strong>{localStats.meetings}</strong></div>
+          <div><span>Proposals</span><strong>{localStats.proposals}</strong></div>
+          <div><span>Won</span><strong>{localStats.wins}</strong></div>
+        </section>
+      )}
       {manualOpen && (
         <section className="manualJobPanel">
-          <div className="grid two">
-            <Field label="Company" value={manualDraft.company} onChange={(value) => setManualDraft({ ...manualDraft, company: value })} />
-            <Field label="Role" value={manualDraft.role} onChange={(value) => setManualDraft({ ...manualDraft, role: value })} />
-            <Field label="Job URL" value={manualDraft.jobUrl} onChange={(value) => setManualDraft({ ...manualDraft, jobUrl: value })} />
-            <Field label="Source" value={manualDraft.source} onChange={(value) => setManualDraft({ ...manualDraft, source: value })} />
-            <Field label="Compensation" value={manualDraft.compensationText} onChange={(value) => setManualDraft({ ...manualDraft, compensationText: value })} />
-            <Field label="Min" value={manualDraft.compensationMin} onChange={(value) => setManualDraft({ ...manualDraft, compensationMin: value })} />
-            <Field label="Max" value={manualDraft.compensationMax} onChange={(value) => setManualDraft({ ...manualDraft, compensationMax: value })} />
+          <div className="manualTypeSwitch">
+            <span>Opportunity</span>
+            <button className={manualDraft.type === "job" ? "active" : ""} onClick={() => setManualDraft(createManualDraft("job"))}>{freelanceOptions ? "Job / Upwork" : "Job"}</button>
+            {freelanceOptions && <button className={manualDraft.type === "outreach" ? "active" : ""} onClick={() => setManualDraft(createManualDraft("outreach"))}>Local outreach</button>}
           </div>
+          <div className="grid two">
+            <Field label={manualDraft.type === "outreach" ? "Business" : "Company"} value={manualDraft.company} onChange={(value) => setManualDraft({ ...manualDraft, company: value })} />
+            <Field label={manualDraft.type === "outreach" ? "Service to offer" : "Role"} value={manualDraft.role} onChange={(value) => setManualDraft({ ...manualDraft, role: value })} />
+            <Field label={manualDraft.type === "outreach" ? "Business website" : "Job URL"} value={manualDraft.jobUrl} onChange={(value) => setManualDraft({ ...manualDraft, jobUrl: value })} />
+            {manualDraft.type === "outreach" ? (
+              <>
+                <Field label="Contact name" value={manualDraft.contactName} onChange={(value) => setManualDraft({ ...manualDraft, contactName: value })} />
+                <label className="field">
+                  <span>Contact method</span>
+                  <select value={manualDraft.contactMethod} onChange={(event) => setManualDraft({ ...manualDraft, contactMethod: event.target.value as NonNullable<Application["outreach"]>["contactMethod"] })}>
+                    <option value="">Not set</option>
+                    {OUTREACH_CONTACT_METHODS.map((method) => <option key={method}>{method}</option>)}
+                  </select>
+                </label>
+                <Field label="Email, phone, or handle" value={manualDraft.contactDetails} onChange={(value) => setManualDraft({ ...manualDraft, contactDetails: value })} />
+                <label className="field">
+                  <span>Next follow-up</span>
+                  <input type="date" value={manualDraft.nextActionDate} onChange={(event) => setManualDraft({ ...manualDraft, nextActionDate: event.target.value })} />
+                </label>
+              </>
+            ) : (
+              <>
+                <Field label="Source" value={manualDraft.source} onChange={(value) => setManualDraft({ ...manualDraft, source: value })} />
+                <Field label="Compensation" value={manualDraft.compensationText} onChange={(value) => setManualDraft({ ...manualDraft, compensationText: value })} />
+                <Field label="Min" value={manualDraft.compensationMin} onChange={(value) => setManualDraft({ ...manualDraft, compensationMin: value })} />
+                <Field label="Max" value={manualDraft.compensationMax} onChange={(value) => setManualDraft({ ...manualDraft, compensationMax: value })} />
+              </>
+            )}
+          </div>
+          {manualDraft.type === "outreach" && (
+            <label className="field">
+              <span>Notes</span>
+              <textarea rows={3} value={manualDraft.notes} onChange={(event) => setManualDraft({ ...manualDraft, notes: event.target.value })} placeholder="What did you notice, and how could you help?" />
+            </label>
+          )}
           <div className="pasteActions">
             {parseStatus && <span>{parseStatus}</span>}
-            <select value={manualDraft.compensationCurrency} onChange={(event) => setManualDraft({ ...manualDraft, compensationCurrency: event.target.value as CompensationCurrency })}>
+            {manualDraft.type === "job" && <select value={manualDraft.compensationCurrency} onChange={(event) => setManualDraft({ ...manualDraft, compensationCurrency: event.target.value as CompensationCurrency })}>
               <option value="">Currency</option>
               <option value="MXN">MXN</option>
               <option value="USD">USD</option>
               <option value="EUR">EUR</option>
-            </select>
-            <select value={manualDraft.compensationPeriod} onChange={(event) => setManualDraft({ ...manualDraft, compensationPeriod: event.target.value as CompensationPeriod })}>
+            </select>}
+            {manualDraft.type === "job" && <select value={manualDraft.compensationPeriod} onChange={(event) => setManualDraft({ ...manualDraft, compensationPeriod: event.target.value as CompensationPeriod })}>
               <option value="">Period</option>
               <option value="year">Year</option>
               <option value="month">Month</option>
               <option value="hour">Hour</option>
               <option value="one-time">One-time</option>
-            </select>
-            <select value={manualDraft.status} onChange={(event) => setManualDraft({ ...manualDraft, status: event.target.value as ApplicationStatus })}>
+            </select>}
+            {manualDraft.type === "job" ? <select value={manualDraft.status} onChange={(event) => setManualDraft({ ...manualDraft, status: event.target.value as ApplicationStatus })}>
               {statuses.map((status) => <option key={status}>{status}</option>)}
-            </select>
+            </select> : <select value={manualDraft.outreachStatus} onChange={(event) => setManualDraft({ ...manualDraft, outreachStatus: event.target.value as OutreachStatus })}>
+              {OUTREACH_STATUSES.map((status) => <option key={status}>{status}</option>)}
+            </select>}
             <button onClick={() => void addManual()}>Create</button>
           </div>
         </section>
@@ -686,7 +894,7 @@ function TrackerPanel({
       {pasteOpen && (
         <section className="pasteJobPanel">
           <label>
-            <span>Paste job posting or Upwork proposal — AI uses only this text</span>
+            <span>{freelanceOptions ? "Paste job posting or Upwork proposal" : "Paste job posting"} — AI uses only this text</span>
             <textarea rows={8} value={postingText} onChange={(event) => setPostingText(event.target.value)} />
           </label>
           <div className="pasteActions">
@@ -695,21 +903,21 @@ function TrackerPanel({
           </div>
         </section>
       )}
-      {filtered.length === 0 && <Empty icon={<CalendarClock size={19} />} title="No applications found" body="Tracked and manual applications will appear here." />}
+      {filtered.length === 0 && <Empty icon={<CalendarClock size={19} />} title={pipeline === "outreach" ? "No local leads found" : "No applications found"} body={pipeline === "outreach" ? "Add a nearby business you may be able to help." : "Tracked and manual applications will appear here."} />}
       <div className="statusFilter" aria-label="Visible board statuses">
         <span><ListFilter size={14} /> Statuses</span>
         <div className="statusFilterChips">
-          {statuses.map((status) => {
-            const statusCount = filtered.filter((app) => app.status === status).length;
+          {boardStatuses.map((status) => {
+            const statusCount = filtered.filter((app) => opportunityStatus(app) === status).length;
             return (
               <button
-                className={visibleStatuses.includes(status) ? "statusChip active" : "statusChip"}
+                className={activeStatuses.includes(status) ? "statusChip active" : "statusChip"}
                 key={status}
                 type="button"
-                aria-pressed={visibleStatuses.includes(status)}
-                onClick={() => toggleVisibleStatus(status)}
+                aria-pressed={activeStatuses.includes(status)}
+                onClick={() => pipeline === "outreach" ? toggleVisibleOutreachStatus(status as OutreachStatus) : toggleVisibleStatus(status as ApplicationStatus)}
               >
-                <span className={`statusDot status-${status.toLowerCase()}`} />
+                <span className={`statusDot status-${status.toLowerCase().replaceAll(" ", "-")}`} />
                 {status}
                 <strong>{statusCount}</strong>
               </button>
@@ -717,16 +925,16 @@ function TrackerPanel({
           })}
         </div>
         <div className="statusFilterActions">
-          <button type="button" onClick={() => onVisibleStatusesChange(defaultBoardStatuses)}>Core</button>
-          <button type="button" onClick={() => onVisibleStatusesChange(statuses)}>All</button>
+          {pipeline !== "outreach" && <button type="button" onClick={() => onVisibleStatusesChange(defaultBoardStatuses)}>Core</button>}
+          <button type="button" onClick={() => pipeline === "outreach" ? setVisibleOutreachStatuses(OUTREACH_STATUSES) : onVisibleStatusesChange(statuses)}>All</button>
         </div>
       </div>
-      {visibleStatuses.length === 0 && filtered.length > 0 && <Empty icon={<ListFilter size={19} />} title="No statuses selected" body="Choose at least one status to show matching applications." />}
-      {visibleFiltered.length === 0 && visibleStatuses.length > 0 && filtered.length > 0 && <Empty icon={<ListFilter size={19} />} title="No visible matches" body="Matching applications are currently in hidden statuses." />}
-      {visibleStatuses.length > 0 && (
-      <div className="applicationBoard" aria-label="Application pipeline">
-        {visibleStatuses.map((status) => {
-          const columnApplications = filtered.filter((app) => app.status === status);
+      {activeStatuses.length === 0 && filtered.length > 0 && <Empty icon={<ListFilter size={19} />} title="No statuses selected" body="Choose at least one status to show matching opportunities." />}
+      {visibleFiltered.length === 0 && activeStatuses.length > 0 && filtered.length > 0 && <Empty icon={<ListFilter size={19} />} title="No visible matches" body="Matching opportunities are currently in hidden statuses." />}
+      {activeStatuses.length > 0 && (
+      <div className="applicationBoard" aria-label={pipeline === "outreach" ? "Local outreach pipeline" : "Application pipeline"}>
+        {activeStatuses.map((status) => {
+          const columnApplications = filtered.filter((app) => opportunityStatus(app) === status);
           return (
             <section
               className={draggedId !== null ? "boardColumn dragReady" : "boardColumn"}
@@ -735,7 +943,7 @@ function TrackerPanel({
               onDrop={() => draggedId !== null && void moveApplication(draggedId, status)}
             >
               <header className="boardColumnHeader">
-                <span className={`statusDot status-${status.toLowerCase()}`} />
+                <span className={`statusDot status-${status.toLowerCase().replaceAll(" ", "-")}`} />
                 <h3>{status}</h3>
                 <span className="columnCount">{columnApplications.length}</span>
               </header>
@@ -759,7 +967,7 @@ function TrackerPanel({
                     onDragEnd={() => setDraggedId(null)}
                   />
                 ))}
-                {columnApplications.length === 0 && <div className="columnEmpty">Drop an application here</div>}
+                {columnApplications.length === 0 && <div className="columnEmpty">Drop an opportunity here</div>}
               </div>
             </section>
           );
@@ -835,16 +1043,18 @@ function ApplicationRow({
           {expanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
         </button>
         <div>
-          <strong>{app.role || "Role"}</strong>
-          <p><Building2 size={12} /> {app.company || "Company"}</p>
+          <strong>{app.role || (app.outreach ? "Service" : "Role")}</strong>
+          <p><Building2 size={12} /> {app.company || (app.outreach ? "Business" : "Company")}</p>
           {app.upwork && <small className="upworkBadge">Upwork · {app.upwork.status}</small>}
-          {variant === "list" && <small>{app.status} | {dateInputValue(app.dateApplied)} | {app.source}</small>}
+          {app.outreach && <small className="outreachBadge">Local · {app.outreach.status}</small>}
+          {variant === "list" && <small>{app.outreach?.status ?? app.status} | {dateInputValue(app.dateApplied)} | {app.source}</small>}
           {app.compensation?.text && <small>{app.compensation.text}</small>}
           {(app.location || app.workMode) && <small className="cardMeta"><MapPin size={11} /> {[app.location, app.workMode].filter(Boolean).join(" · ")}</small>}
-          {variant === "card" && !app.location && !app.workMode && <small className="cardMeta"><BriefcaseBusiness size={11} /> {app.source}</small>}
+          {app.outreach?.contactName && <small className="cardMeta"><UserRound size={11} /> {app.outreach.contactName}</small>}
+          {variant === "card" && !app.location && !app.workMode && !app.outreach?.contactName && <small className="cardMeta"><BriefcaseBusiness size={11} /> {app.source}</small>}
         </div>
         <div className="appSummaryActions">
-          <button className="rowIconButton" title={copied ? "Copied" : "Copy all job data"} aria-label={copied ? "Copied" : "Copy all job data"} onClick={() => void copyJob()}>
+          <button className="rowIconButton" title={copied ? "Copied" : "Copy all opportunity data"} aria-label={copied ? "Copied" : "Copy all opportunity data"} onClick={() => void copyJob()}>
             {copied ? <Check size={15} /> : <Copy size={15} />}
           </button>
           <button className="rowIconButton danger" title="Delete application" aria-label="Delete application" onClick={() => void remove()}>
@@ -856,32 +1066,54 @@ function ApplicationRow({
       {expanded && (
         <div className="appDetails">
           <label>
-            <span>Company</span>
+            <span>{app.outreach ? "Business" : "Company"}</span>
             <input value={app.company} onChange={(event) => void update({ company: event.target.value })} />
           </label>
           <label>
-            <span>Role</span>
+            <span>{app.outreach ? "Service" : "Role"}</span>
             <input value={app.role} onChange={(event) => void update({ role: event.target.value })} />
           </label>
           <label>
             <span>Status</span>
-            <select value={app.status} onChange={(event) => void update({ status: event.target.value as ApplicationStatus })}>
-              {statuses.map((status) => <option key={status}>{status}</option>)}
-            </select>
+            {app.outreach ? (
+              <select value={app.outreach.status} onChange={(event) => void update(changeOutreachStatus(app, event.target.value as OutreachStatus))}>
+                {OUTREACH_STATUSES.map((status) => <option key={status}>{status}</option>)}
+              </select>
+            ) : (
+              <select value={app.status} onChange={(event) => void update({ status: event.target.value as ApplicationStatus })}>
+                {statuses.map((status) => <option key={status}>{status}</option>)}
+              </select>
+            )}
           </label>
           <label>
-            <span>Applied date</span>
+            <span>{app.outreach ? "Date added" : "Applied date"}</span>
             <input type="date" value={dateInputValue(app.dateApplied)} onChange={(event) => void update({ dateApplied: dateToIso(event.target.value) })} />
           </label>
           <label>
             <span>Follow-up date</span>
             <input type="date" value={app.nextActionDate?.slice(0, 10) ?? ""} onChange={(event) => void update({ nextActionDate: event.target.value })} />
           </label>
-          <label>
+          {app.outreach && (
+            <fieldset className="outreachEditor">
+              <legend>Local contact</legend>
+              <label><span>Contact name</span><input value={app.outreach.contactName} onChange={(event) => void update({ outreach: { ...app.outreach!, contactName: event.target.value } })} /></label>
+              <label>
+                <span>Contact method</span>
+                <select value={app.outreach.contactMethod} onChange={(event) => void update({ outreach: { ...app.outreach!, contactMethod: event.target.value as NonNullable<Application["outreach"]>["contactMethod"] } })}>
+                  <option value="">Not set</option>
+                  {OUTREACH_CONTACT_METHODS.map((method) => <option key={method}>{method}</option>)}
+                </select>
+              </label>
+              <label><span>Email, phone, or handle</span><input value={app.outreach.contactDetails} onChange={(event) => void update({ outreach: { ...app.outreach!, contactDetails: event.target.value } })} /></label>
+              <label><span>First contacted</span><input type="date" value={app.outreach.contactedAt?.slice(0, 10) ?? ""} onChange={(event) => void update({ outreach: { ...app.outreach!, contactedAt: event.target.value || undefined } })} /></label>
+              <label><span>Business website</span><input value={app.jobUrl} onChange={(event) => void update({ jobUrl: event.target.value })} /></label>
+            </fieldset>
+          )}
+          {!app.outreach && <label>
             <span>Location</span>
             <input value={app.location ?? ""} onChange={(event) => void update({ location: event.target.value })} />
-          </label>
-          <label>
+          </label>}
+          {!app.outreach && <label>
             <span>Work mode</span>
             <select value={app.workMode ?? ""} onChange={(event) => void update({ workMode: event.target.value as Application["workMode"] })}>
               <option value="">Unknown</option>
@@ -889,7 +1121,7 @@ function ApplicationRow({
               <option value="Hybrid">Hybrid</option>
               <option value="On-site">On-site</option>
             </select>
-          </label>
+          </label>}
           {app.upwork && (
             <fieldset className="upworkEditor">
               <legend>Upwork proposal</legend>
@@ -913,11 +1145,11 @@ function ApplicationRow({
               <label><span>Boost charged</span><input type="number" min="0" value={app.upwork.boostCharged ?? ""} onChange={(event) => void update({ upwork: { ...app.upwork!, boostCharged: numberOrNull(event.target.value) } })} /></label>
             </fieldset>
           )}
-          <label>
+          {!app.outreach && <label>
             <span>Compensation</span>
             <input value={app.compensation?.text ?? ""} onChange={(event) => void update({ compensation: { ...(app.compensation ?? emptyCompensation()), text: event.target.value } })} />
-          </label>
-          <label>
+          </label>}
+          {!app.outreach && <label>
             <span>Currency</span>
             <select value={app.compensation?.currency ?? ""} onChange={(event) => void update({ compensation: { ...(app.compensation ?? emptyCompensation()), currency: event.target.value as CompensationCurrency } })}>
               <option value="">Unknown</option>
@@ -925,16 +1157,16 @@ function ApplicationRow({
               <option value="USD">USD</option>
               <option value="EUR">EUR</option>
             </select>
-          </label>
-          <label>
+          </label>}
+          {!app.outreach && <label>
             <span>Comp min</span>
             <input value={app.compensation?.min ?? ""} onChange={(event) => void update({ compensation: { ...(app.compensation ?? emptyCompensation()), min: numberOrUndefined(event.target.value) } })} />
-          </label>
-          <label>
+          </label>}
+          {!app.outreach && <label>
             <span>Comp max</span>
             <input value={app.compensation?.max ?? ""} onChange={(event) => void update({ compensation: { ...(app.compensation ?? emptyCompensation()), max: numberOrUndefined(event.target.value) } })} />
-          </label>
-          <label>
+          </label>}
+          {!app.outreach && <label>
             <span>Comp period</span>
             <select value={app.compensation?.period ?? ""} onChange={(event) => void update({ compensation: { ...(app.compensation ?? emptyCompensation()), period: event.target.value as CompensationPeriod } })}>
               <option value="">Unknown</option>
@@ -943,14 +1175,18 @@ function ApplicationRow({
               <option value="hour">Hour</option>
               <option value="one-time">One-time</option>
             </select>
-          </label>
-          <label>
+          </label>}
+          {!app.outreach && <label>
             <span>Job description</span>
             <textarea rows={5} value={app.jobDescription ?? ""} onChange={(event) => void update({ jobDescription: event.target.value })} />
-          </label>
+          </label>}
           <label>
             <span>Source</span>
             <input value={app.source} onChange={(event) => void update({ source: event.target.value })} />
+          </label>
+          <label>
+            <span>Notes</span>
+            <textarea rows={5} value={app.notes ?? ""} onChange={(event) => void update({ notes: event.target.value })} />
           </label>
         </div>
       )}
@@ -1193,7 +1429,75 @@ function MemoryPanel({ memories, refresh, demoMode, setMemories }: { memories: A
   );
 }
 
-function SettingsPanel({ settings, save }: { settings: Settings; save: (settings: Settings) => Promise<void> }) {
+function BackupPanel({ exportAll, importAll }: { exportAll: () => Promise<void>; importAll: (backup: FullBackup) => Promise<void> }) {
+  const [preview, setPreview] = useState<FullBackup | null>(null);
+  const [status, setStatus] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [confirmed, setConfirmed] = useState(false);
+
+  async function readBackup(file: File) {
+    setBusy(true);
+    setPreview(null);
+    setConfirmed(false);
+    try {
+      if (file.size > MAX_BACKUP_BYTES) throw new Error("Backup is larger than 50 MB.");
+      const backup = parseBackupJson(await file.text());
+      setPreview(backup);
+      setStatus("Backup checked. Review it before restoring.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error));
+    } finally { setBusy(false); }
+  }
+
+  async function run(action: () => Promise<void>, success: string) {
+    setBusy(true);
+    setStatus("Working...");
+    try {
+      await action();
+      setStatus(success);
+      setPreview(null);
+      setConfirmed(false);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error));
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <section className="backupPanel" aria-labelledby="backupTitle">
+      <h2 id="backupTitle">Portable backup</h2>
+      <p>Move your profile, saved CV and cover letter, all jobs and freelance records, answers, and settings to another instance.</p>
+      <p>The JSON file includes private information and your OpenAI API key. Keep it somewhere secure.</p>
+      <div className="toolbar backupActions">
+        <button type="button" disabled={busy} onClick={() => void run(exportAll, "Backup download started.")}><Download size={14} /> Export all data</button>
+        <label className={`importCv${busy ? " backupDisabled" : ""}`}>
+          <Upload size={14} /> Import all data
+          <input type="file" accept=".json,application/json" disabled={busy} onChange={(event) => {
+            const file = event.target.files?.[0];
+            event.target.value = "";
+            if (file) void readBackup(file);
+          }} />
+        </label>
+      </div>
+      {preview && (
+        <div className="jsonImportPreview">
+          <strong>{`${preview.profile.identity.firstName} ${preview.profile.identity.lastName}`.trim() || "Unnamed profile"}</strong>
+          <span>Exported {new Date(preview.exportedAt).toLocaleString()} · {preview.applications.length} jobs/opportunities · {preview.answerMemory.length} saved answers</span>
+          <span>{preview.profile.resumeFile ? "CV included" : "No saved CV"} · {preview.profile.coverLetterFile ? "Cover letter included" : "No saved cover letter"} · {preview.settings.apiKey ? "API key included" : "No API key"}</span>
+          {preview.settings.demoMode && <p>This backup has demo mode enabled. Exit demo mode after restoring to see your real records.</p>}
+          <p>Restoring replaces the profile, jobs, answers, and settings in this instance. Export your current data first if you want to keep it.</p>
+          <label><input type="checkbox" checked={confirmed} disabled={busy} onChange={(event) => setConfirmed(event.target.checked)} /> Replace this instance with this backup</label>
+          <div className="toolbar">
+            <button type="button" disabled={busy || !confirmed} onClick={() => void run(() => importAll(preview), "All data restored. Reload open job pages to use the restored settings.")}><Upload size={14} /> Restore backup</button>
+            <button type="button" disabled={busy} onClick={() => { setPreview(null); setConfirmed(false); setStatus(""); }}>Cancel</button>
+          </div>
+        </div>
+      )}
+      {status && <p role="status" aria-live="polite">{status}</p>}
+    </section>
+  );
+}
+
+function SettingsPanel({ settings, save, exportAll, importAll }: { settings: Settings; save: (settings: Settings) => Promise<void>; exportAll: () => Promise<void>; importAll: (backup: FullBackup) => Promise<void> }) {
   return (
     <section className="panel">
       <button
@@ -1228,11 +1532,20 @@ function SettingsPanel({ settings, save }: { settings: Settings; save: (settings
         <input type="checkbox" checked={settings.matchScoring} onChange={(event) => void save({ ...settings, matchScoring: event.target.checked })} />
         {" "}Enable skill match scoring — the Match tab and job-card badges (off by default; applies after page reload)
       </label>
+      <label>
+        <input type="checkbox" checked={settings.freelanceOptions} onChange={(event) => void save({ ...settings, freelanceOptions: event.target.checked })} />
+        {" "}Enable freelance options — Upwork proposals and local outreach (off by default)
+      </label>
       <div className="siteGrid">
+        <label>
+          <input type="checkbox" checked={settings.blockLinkedInExtensionProbes} onChange={(event) => void save({ ...settings, blockLinkedInExtensionProbes: event.target.checked })} />
+          {" "}Block LinkedIn extension probes (reload LinkedIn after changing)
+        </label>
         {Object.entries(settings.enabledSites).map(([site, enabled]) => (
           <label key={site}><input type="checkbox" checked={enabled} onChange={(event) => void save({ ...settings, enabledSites: { ...settings.enabledSites, [site]: event.target.checked } })} /> {site}</label>
         ))}
       </div>
+      <BackupPanel exportAll={exportAll} importAll={importAll} />
     </section>
   );
 }

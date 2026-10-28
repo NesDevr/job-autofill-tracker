@@ -253,6 +253,84 @@
   font-size: 12px;
 }
 
+.jtCompanyHistory {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 7px 0 0;
+  color: var(--jt-warn-text);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.jtCompanyHistory span {
+  border: 1px solid var(--jt-warn-border);
+  border-radius: 999px;
+  background: var(--jt-warn-bg);
+  padding: 2px 7px;
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.jtTrackerSummary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.jtTrackerSummary .jtMuted {
+  margin: 0;
+}
+
+.jtIgnoreCompanyForm {
+  display: flex;
+  min-width: 0;
+  gap: 5px;
+}
+
+.jtIgnoreCompanyForm input {
+  min-width: 0;
+  width: 116px;
+  border: 1px solid var(--jt-border);
+  border-radius: 6px;
+  background: var(--jt-surface);
+  color: var(--jt-text);
+  padding: 4px 7px;
+  font: inherit;
+  font-size: 10px;
+}
+
+.jtIgnoreCompanyForm input:focus {
+  border-color: var(--jt-accent);
+  outline: none;
+}
+
+.jtIgnoreCompany {
+  border: 1px solid var(--jt-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--jt-muted);
+  padding: 3px 8px;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.jtIgnoreCompany:hover:not(:disabled) {
+  border-color: var(--jt-error);
+  background: color-mix(in srgb, var(--jt-error) 10%, transparent);
+  color: var(--jt-error);
+}
+
+.jtIgnoreCompany:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
 .jtIconButton {
   border: 1px solid var(--jt-border);
   border-radius: 7px;
@@ -664,6 +742,15 @@
   padding: 1px 7px;
   font-size: 9px;
   font-weight: 800;
+}
+
+.jtOutreachBadge {
+  display: block;
+  width: fit-content;
+  margin-top: 3px;
+  color: #a05216;
+  font-size: 11px;
+  font-weight: 750;
 }
 
 .jtJobRowExpanded {

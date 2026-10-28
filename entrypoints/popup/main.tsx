@@ -216,7 +216,7 @@ function SavedSearches({
       </div>
       {editing && (
         <div className="searchForm">
-          <input placeholder="Label (e.g. Upwork · Django)" value={label} onChange={(event) => setLabel(event.target.value)} />
+          <input placeholder="Label (e.g. Backend roles)" value={label} onChange={(event) => setLabel(event.target.value)} />
           <input placeholder="https://..." value={url} onChange={(event) => setUrl(event.target.value)} />
           <button type="button" onClick={() => void addSearch()} disabled={!url.trim()}>
             <Plus size={13} /> Add link

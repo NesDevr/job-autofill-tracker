@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { scoreAffinity, type AffinityResult } from "../../lib/affinity";
 import type { JobFitAnalysis, JobPostingDraft } from "../../lib/ai";
-import { isJobDetailUrl } from "../../lib/jobs";
-import { getDueCount, getProfile, getSettings, saveProfile } from "../../lib/storage";
+import { canonicalCompanyName, isJobDetailUrl } from "../../lib/jobs";
+import { getDueCount, getProfile, getSettings, saveProfile, saveSettings } from "../../lib/storage";
 import { changeUpworkStatus, UPWORK_PROPOSAL_STATUSES } from "../../lib/upwork";
 import {
   type Application,
@@ -44,6 +44,7 @@ export default function Widget({ showFab = true }: { showFab?: boolean } = {}) {
   const [page, setPage] = useState<PageContext>();
   const [job, setJob] = useState<JobState>({ phase: "idle" });
   const [tracked, setTracked] = useState<Application>();
+  const [companyApplications, setCompanyApplications] = useState<Application[]>([]);
   const [trackNotice, setTrackNotice] = useState("");
   const [saving, setSaving] = useState(false);
   const [trackFormOpen, setTrackFormOpen] = useState(false);
@@ -61,9 +62,13 @@ export default function Widget({ showFab = true }: { showFab?: boolean } = {}) {
     ...(showMatch ? (["match"] as const) : []),
     "tracker",
     "answer",
-    ...(isUpwork ? (["upwork"] as const) : []),
+    ...(isUpwork && settings?.freelanceOptions ? (["upwork"] as const) : []),
     "profile"
   ];
+
+  useEffect(() => {
+    if (activeTab === "upwork" && !settings?.freelanceOptions) setActiveTab("tracker");
+  }, [activeTab, settings?.freelanceOptions]);
 
   useEffect(() => {
     void getProfile().then(setProfile);
@@ -165,22 +170,28 @@ export default function Widget({ showFab = true }: { showFab?: boolean } = {}) {
 
   useEffect(() => {
     setTracked(undefined);
+    setCompanyApplications([]);
     let cancelled = false;
+    const company = page?.company ?? getPageContext().company;
     void chrome.runtime
-      .sendMessage({ kind: "GET_TRACKED_JOB", url } satisfies ExtensionMessage)
+      .sendMessage({ kind: "GET_TRACKED_JOB", url, company } satisfies ExtensionMessage)
       .then((response) => {
-        if (!cancelled && response?.ok) setTracked(response.tracked);
+        if (!cancelled && response?.ok) {
+          setTracked(response.tracked);
+          setCompanyApplications(response.companyApplications ?? []);
+        }
       });
     return () => {
       cancelled = true;
     };
-  }, [url, open]);
+  }, [url, open, page?.company]);
 
   const saveApplication = useCallback(async (draft: Application) => {
     const application = { ...draft, status: "Applied" as const };
     setSaving(true);
     setTrackNotice("");
     try {
+      if (application.upwork && !settings?.freelanceOptions) throw new Error("Enable freelance options in Settings to track Upwork proposals.");
       const response = await chrome.runtime.sendMessage({ kind: "LOG_APPLICATION", application } satisfies ExtensionMessage);
       if (!response?.ok) throw new Error(response?.error ?? "Tracking failed.");
       if (settings?.demoMode) {
@@ -268,6 +279,30 @@ export default function Widget({ showFab = true }: { showFab?: boolean } = {}) {
     void chrome.runtime.sendMessage({ kind: "OPEN_DASHBOARD", applicationId } satisfies ExtensionMessage);
   };
 
+  const addIgnoredCompany = useCallback(async (value: string): Promise<boolean> => {
+    if (!settings) return false;
+    const company = value.trim();
+    const canonical = canonicalCompanyName(company);
+    if (!canonical) return false;
+    if (settings.ignoredCompanies.some((item) => canonicalCompanyName(item) === canonical)) {
+      setTrackNotice(`${company} is already ignored.`);
+      return true;
+    }
+    const nextSettings = {
+      ...settings,
+      ignoredCompanies: [...settings.ignoredCompanies, company]
+    };
+    try {
+      await saveSettings(nextSettings);
+      setSettings(nextSettings);
+      setTrackNotice(`${company} added to ignored companies.`);
+      return true;
+    } catch (error) {
+      setTrackNotice(error instanceof Error ? error.message : String(error));
+      return false;
+    }
+  }, [settings]);
+
   const addSkill = useCallback(
     async (term: string) => {
       if (!profile) return;
@@ -302,6 +337,12 @@ export default function Widget({ showFab = true }: { showFab?: boolean } = {}) {
               <p className="jtKicker">{page?.source ?? "Job page"}</p>
               <h1 className="jtTitle">{page?.role ?? "Current page"}</h1>
               {page?.company && <p className="jtCompany">{page.company}</p>}
+              {companyApplications.length > 0 && (
+                <p className="jtCompanyHistory">
+                  <span>Applied before</span>
+                  {companyApplications.length} {companyApplications.length === 1 ? "role" : "roles"} at this company
+                </p>
+              )}
             </div>
             <button className="jtIconButton" onClick={() => setOpen(false)} aria-label="Close">
               x
@@ -344,7 +385,7 @@ export default function Widget({ showFab = true }: { showFab?: boolean } = {}) {
                   </>
                 )}
                 {activeTab === "answer" && <AnswerTab />}
-                {activeTab === "upwork" && (
+                {activeTab === "upwork" && settings?.freelanceOptions && (
                   <UpworkTab
                     url={url}
                     tracked={tracked}
@@ -353,7 +394,14 @@ export default function Widget({ showFab = true }: { showFab?: boolean } = {}) {
                     onPatched={(patch) => setTracked((current) => (current ? { ...current, ...patch } : current))}
                   />
                 )}
-                {activeTab === "tracker" && <TrackerTab demoMode={settings?.demoMode ?? false} onOpenDashboard={openDashboard} />}
+                {activeTab === "tracker" && (
+                  <TrackerTab
+                    demoMode={settings?.demoMode ?? false}
+                    freelanceOptions={settings?.freelanceOptions ?? false}
+                    onAddIgnoredCompany={addIgnoredCompany}
+                    onOpenDashboard={openDashboard}
+                  />
+                )}
                 {activeTab === "profile" && <ProfileTab demoMode={settings?.demoMode ?? false} onOpenDashboard={openDashboard} />}
               </div>
               <footer className="jtDrawerFooter">

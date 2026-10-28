@@ -110,6 +110,27 @@ export type ApplicationStatus =
 
 export const APPLICATION_STATUSES: ApplicationStatus[] = ["Saved", "Applied", "Screen", "Interview", "Offer", "Rejected", "Ghosted"];
 
+export type OutreachStatus =
+  | "Lead"
+  | "Contacted"
+  | "Replied"
+  | "Meeting"
+  | "Proposal"
+  | "Won"
+  | "Lost";
+
+export const OUTREACH_STATUSES: OutreachStatus[] = ["Lead", "Contacted", "Replied", "Meeting", "Proposal", "Won", "Lost"];
+export const OUTREACH_CONTACT_METHODS = ["Email", "WhatsApp", "Instagram", "Phone", "In person"] as const;
+export type OutreachContactMethod = typeof OUTREACH_CONTACT_METHODS[number] | "";
+
+export type OutreachDetails = {
+  status: OutreachStatus;
+  contactName: string;
+  contactMethod: OutreachContactMethod;
+  contactDetails: string;
+  contactedAt?: string;
+};
+
 export type CompensationPeriod = "year" | "month" | "hour" | "one-time" | "";
 export type CompensationCurrency = "MXN" | "USD" | "EUR" | "";
 
@@ -171,6 +192,7 @@ export type Application = {
   notes: string;
   nextActionDate?: string;
   upwork?: UpworkProposalDetails;
+  outreach?: OutreachDetails;
 };
 
 export type DashboardLaunch = {
@@ -261,8 +283,11 @@ export type Settings = {
   theme: ThemeMode;
   trackingEntryMode: TrackingEntryMode;
   matchScoring: boolean;
+  freelanceOptions: boolean;
+  blockLinkedInExtensionProbes: boolean;
   customSearches: SavedSearch[];
   hiddenPresetSearches: string[];
+  ignoredCompanies: string[];
   visibleBoardStatuses: ApplicationStatus[];
   enabledSites: {
     greenhouse: boolean;
@@ -295,6 +320,7 @@ export type TrackCurrentApplicationRequest = {
 export type GetTrackedJobRequest = {
   kind: "GET_TRACKED_JOB";
   url: string;
+  company: string;
 };
 
 export type OpenDashboardRequest = {
@@ -470,8 +496,11 @@ export const DEFAULT_SETTINGS: Settings = {
   theme: "light",
   trackingEntryMode: "manual",
   matchScoring: false,
+  freelanceOptions: false,
+  blockLinkedInExtensionProbes: true,
   customSearches: [],
   hiddenPresetSearches: [],
+  ignoredCompanies: [],
   visibleBoardStatuses: ["Applied", "Interview", "Rejected"],
   enabledSites: {
     greenhouse: true,

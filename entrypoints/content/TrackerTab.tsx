@@ -3,17 +3,20 @@ import type { JobPostingDraft } from "../../lib/ai";
 import { normalizeCompensationCurrency } from "../../lib/compensation";
 import { applicationToClipboardText, isFollowUpDue, localDateISO, localTodayISO } from "../../lib/jobs";
 import { changeUpworkStatus, UPWORK_PROPOSAL_STATUSES } from "../../lib/upwork";
+import { changeOutreachStatus, opportunityStatus } from "../../lib/outreach";
 import {
   APPLICATION_STATUSES,
+  OUTREACH_STATUSES,
   type Application,
   type ApplicationStatus,
   type CompensationCurrency,
   type CompensationPeriod,
   type ExtensionMessage,
+  type OutreachStatus,
   type UpworkProposalStatus
 } from "../../lib/schema";
 
-type TrackerStatusFilter = ApplicationStatus | "All";
+type TrackerStatusFilter = ApplicationStatus | OutreachStatus | "All";
 
 const emptyManualDraft = {
   company: "",
@@ -28,7 +31,17 @@ const emptyManualDraft = {
   compensationPeriod: "" as CompensationPeriod
 };
 
-export default function TrackerTab({ demoMode, onOpenDashboard }: { demoMode: boolean; onOpenDashboard: (applicationId?: number) => void }) {
+export default function TrackerTab({
+  demoMode,
+  freelanceOptions,
+  onAddIgnoredCompany,
+  onOpenDashboard
+}: {
+  demoMode: boolean;
+  freelanceOptions: boolean;
+  onAddIgnoredCompany: (company: string) => Promise<boolean>;
+  onOpenDashboard: (applicationId?: number) => void;
+}) {
   const [applications, setApplications] = useState<Application[]>([]);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<TrackerStatusFilter>("All");
@@ -39,6 +52,7 @@ export default function TrackerTab({ demoMode, onOpenDashboard }: { demoMode: bo
   const [pasteCreating, setPasteCreating] = useState(false);
   const [dueOnly, setDueOnly] = useState(false);
   const [notice, setNotice] = useState("");
+  const [ignoreDraft, setIgnoreDraft] = useState("");
 
   const load = useCallback(async () => {
     const response = await chrome.runtime.sendMessage({ kind: "LIST_APPLICATIONS" } satisfies ExtensionMessage);
@@ -59,6 +73,10 @@ export default function TrackerTab({ demoMode, onOpenDashboard }: { demoMode: bo
   }, [load]);
 
   async function addManual() {
+    if (!freelanceOptions && manualDraft.source.trim().toLowerCase() === "upwork") {
+      setNotice("Enable freelance options in Settings to add Upwork proposals.");
+      return;
+    }
     if (!manualDraft.company.trim() || !manualDraft.role.trim()) {
       setNotice("Company and role are required.");
       return;
@@ -109,6 +127,7 @@ export default function TrackerTab({ demoMode, onOpenDashboard }: { demoMode: bo
       } satisfies ExtensionMessage);
       if (!draftResponse?.ok) throw new Error(draftResponse?.error ?? "Reading the posting failed.");
       const draft = draftResponse.draft as JobPostingDraft;
+      if (draft.upwork && !freelanceOptions) throw new Error("Enable freelance options in Settings to add Upwork proposals.");
       const application: Application = {
         company: draft.company,
         role: draft.role,
@@ -162,22 +181,28 @@ export default function TrackerTab({ demoMode, onOpenDashboard }: { demoMode: bo
   const today = new Date();
   const yesterday = new Date(today);
   yesterday.setDate(today.getDate() - 1);
+  const shownApplications = freelanceOptions ? applications : applications.filter((app) => !app.upwork && !app.outreach);
   const stats = {
-    dayCount: applications.filter((app) => isSameLocalDay(new Date(app.dateApplied), today)).length,
-    yesterdayCount: applications.filter((app) => isSameLocalDay(new Date(app.dateApplied), yesterday)).length,
-    weekCount: applications.filter((app) => now - new Date(app.dateApplied).getTime() < 7 * 24 * 60 * 60 * 1000).length
+    dayCount: shownApplications.filter((app) => isSameLocalDay(new Date(app.dateApplied), today)).length,
+    yesterdayCount: shownApplications.filter((app) => isSameLocalDay(new Date(app.dateApplied), yesterday)).length,
+    weekCount: shownApplications.filter((app) => now - new Date(app.dateApplied).getTime() < 7 * 24 * 60 * 60 * 1000).length
   };
 
   const todayISO = localTodayISO();
-  const dueApplications = applications.filter((app) => isFollowUpDue(app, todayISO));
+  const dueApplications = shownApplications.filter((app) => isFollowUpDue(app, todayISO));
 
-  const visibleApplications = applications.filter((app) => {
+  const visibleApplications = shownApplications.filter((app) => {
     const trimmed = query.trim().toLowerCase();
-    const matchesQuery = !trimmed || `${app.company} ${app.role} ${app.source} ${app.status} ${app.notes}`.toLowerCase().includes(trimmed);
-    const matchesStatus = statusFilter === "All" || app.status === statusFilter;
+    const matchesQuery = !trimmed || `${app.company} ${app.role} ${app.source} ${app.outreach?.status ?? app.status} ${app.outreach?.contactName ?? ""} ${app.outreach?.contactDetails ?? ""} ${app.notes}`.toLowerCase().includes(trimmed);
+    const matchesStatus = statusFilter === "All" || opportunityStatus(app) === statusFilter;
     const matchesDue = !dueOnly || isFollowUpDue(app, todayISO);
     return matchesQuery && matchesStatus && matchesDue;
   });
+
+  async function addIgnoredCompany() {
+    if (!ignoreDraft.trim()) return;
+    if (await onAddIgnoredCompany(ignoreDraft)) setIgnoreDraft("");
+  }
 
   return (
     <div className="jtMatch">
@@ -297,7 +322,7 @@ export default function TrackerTab({ demoMode, onOpenDashboard }: { demoMode: bo
           <textarea
             className="jtTextarea"
             rows={5}
-            placeholder="Paste a job posting or Upwork proposal summary"
+            placeholder={freelanceOptions ? "Paste a job posting or Upwork proposal summary" : "Paste a job posting"}
             value={postingText}
             onChange={(event) => setPostingText(event.target.value)}
           />
@@ -321,14 +346,40 @@ export default function TrackerTab({ demoMode, onOpenDashboard }: { demoMode: bo
           onChange={(event) => setStatusFilter(event.target.value as TrackerStatusFilter)}
         >
           <option value="All">All</option>
-          {APPLICATION_STATUSES.map((status) => (
-            <option key={status}>{status}</option>
-          ))}
+          <optgroup label="Jobs">
+            {APPLICATION_STATUSES.map((status) => <option key={status}>{status}</option>)}
+          </optgroup>
+          {freelanceOptions && <optgroup label="Local outreach">
+            {OUTREACH_STATUSES.map((status) => <option key={status}>{status}</option>)}
+          </optgroup>}
         </select>
       </div>
-      <p className="jtMuted">{visibleApplications.length} tracked</p>
-      {applications.length === 0 && <p className="jtMuted">New and tracked jobs will show here.</p>}
-      {applications.length > 0 && visibleApplications.length === 0 && <p className="jtMuted">No tracked jobs match this view.</p>}
+      <div className="jtTrackerSummary">
+        <p className="jtMuted">{visibleApplications.length} tracked</p>
+        <form
+          className="jtIgnoreCompanyForm"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void addIgnoredCompany();
+          }}
+        >
+          <input
+            aria-label="Company to ignore"
+            placeholder="Company to ignore"
+            value={ignoreDraft}
+            onChange={(event) => setIgnoreDraft(event.target.value)}
+          />
+          <button
+            className="jtIgnoreCompany"
+            type="submit"
+            disabled={!ignoreDraft.trim()}
+          >
+            Add
+          </button>
+        </form>
+      </div>
+      {shownApplications.length === 0 && <p className="jtMuted">New and tracked jobs will show here.</p>}
+      {shownApplications.length > 0 && visibleApplications.length === 0 && <p className="jtMuted">No tracked jobs match this view.</p>}
       {visibleApplications.map((app) => (
         <TrackedJob
           app={app}
@@ -392,19 +443,28 @@ function TrackedJob({
         </button>
         <div className="jtJobRowMain">
           <div className="jtJobRowTitle">
-            <strong>{app.role || "Role"}</strong>
-            <select
-              aria-label={`Status for ${app.role || "tracked job"}`}
-              value={app.status}
-              onChange={(event) => onUpdate({ status: event.target.value as ApplicationStatus })}
-            >
-              {APPLICATION_STATUSES.map((status) => (
-                <option key={status}>{status}</option>
-              ))}
-            </select>
+          <strong>{app.role || (app.outreach ? "Service" : "Role")}</strong>
+            {app.outreach ? (
+              <select
+                aria-label={`Outreach status for ${app.company || "local business"}`}
+                value={app.outreach.status}
+                onChange={(event) => onUpdate(changeOutreachStatus(app, event.target.value as OutreachStatus))}
+              >
+                {OUTREACH_STATUSES.map((status) => <option key={status}>{status}</option>)}
+              </select>
+            ) : (
+              <select
+                aria-label={`Status for ${app.role || "tracked job"}`}
+                value={app.status}
+                onChange={(event) => onUpdate({ status: event.target.value as ApplicationStatus })}
+              >
+                {APPLICATION_STATUSES.map((status) => <option key={status}>{status}</option>)}
+              </select>
+            )}
           </div>
-          <p className="jtJobRowCompany">{app.company || "Company"}</p>
+          <p className="jtJobRowCompany">{app.company || (app.outreach ? "Business" : "Company")}</p>
           {app.upwork && <span className="jtUpworkBadge">Upwork · {app.upwork.status}</span>}
+          {app.outreach && <span className="jtOutreachBadge">Local outreach · {app.outreach.status}</span>}
           {app.nextActionDate && <p className="jtJobRowCompany">Due {app.nextActionDate.slice(0, 10)}</p>}
         </div>
         <div className="jtJobRowActions">
@@ -426,7 +486,7 @@ function TrackedJob({
               <dd>{app.source || "Not set"}</dd>
             </div>
             <div>
-              <dt>Applied</dt>
+              <dt>{app.outreach ? "Added" : "Applied"}</dt>
               <dd>{app.dateApplied ? localDateISO(app.dateApplied) : "Not set"}</dd>
             </div>
             <div>
@@ -452,6 +512,14 @@ function TrackedJob({
               </dd>
             </div>
           </dl>
+          {app.outreach && (
+            <dl className="jtJobDetails">
+              <div><dt>Contact</dt><dd>{app.outreach.contactName || "Not set"}</dd></div>
+              <div><dt>Method</dt><dd>{app.outreach.contactMethod || "Not set"}</dd></div>
+              <div className="jtJobDetailWide"><dt>Contact details</dt><dd>{app.outreach.contactDetails || "Not set"}</dd></div>
+              <div><dt>First contacted</dt><dd>{app.outreach.contactedAt?.slice(0, 10) || "Not set"}</dd></div>
+            </dl>
+          )}
           {app.jobDescription && (
             <section className="jtJobTextBlock">
               <strong>Job description</strong>

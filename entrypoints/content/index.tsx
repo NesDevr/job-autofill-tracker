@@ -85,8 +85,11 @@ export default defineContentScript({
     });
     ui.mount();
 
-    if (allowedJobPage && (await getSettings()).matchScoring) {
-      initCardBadges(await getProfile());
+    if (allowedJobPage) {
+      const settings = await getSettings();
+      const response = await chrome.runtime.sendMessage({ kind: "LIST_APPLICATIONS" } satisfies ExtensionMessage);
+      if (!response?.ok) throw new Error(response?.error ?? "Loading tracked companies failed.");
+      initCardBadges(settings.matchScoring ? await getProfile() : undefined, response.applications, settings.ignoredCompanies);
     }
   }
 });
