@@ -19,6 +19,8 @@ Local-first Chrome extension for filling job applications, drafting free-text sc
 - React-safe input filling via native setters and input/change/blur events.
 - Greenhouse, Lever, Ashby, LinkedIn, Indeed, and Comeet host detection with explicit click-to-fill.
 - Upwork proposal capture from the current page, AI parsing from pasted proposal text, manual entry, proposal economics, and conversion metrics.
+- Dedicated local freelance outreach pipeline with business contacts, outreach stages, follow-up dates, and conversion metrics.
+- Upwork and local outreach views can be enabled in Settings; freelance options are hidden by default, and existing entries remain saved when disabled.
 - Floating post-submit prompt to confirm whether a detected application should be saved to tracking.
 - Side panel tracking panel for manual tracker rows or AI parsing from pasted job postings.
 - Hybrid compensation tracking with a visible compensation field plus structured currency, range, and period fields.
@@ -26,11 +28,15 @@ Local-first Chrome extension for filling job applications, drafting free-text sc
 - Applications and answer memory in IndexedDB via Dexie.
 - Optional BYO OpenAI API key for batched AI free-text answers with an anti-fabrication prompt.
 - Full dashboard profile editor, tracker kanban/table hybrid, follow-up dates, answer memory view, settings, and CSV export.
+- Safe Profile JSON import with strict schema/type checks, a 1 MB limit, URL validation, prototype-key rejection, and review-before-apply. Existing stored CV and cover-letter files are preserved.
+- Settings → Portable backup exports and restores the real profile (including stored CV/cover-letter files), every job/Upwork/outreach record, answer memory, and all settings. Backups include the API key and private information. Import validates a versioned JSON file (up to 50 MB), previews counts, and requires confirmation before replacing existing data. Database writes are atomic, with recovery of previous records if extension storage fails. Demo mode exports real stored data; temporary demo edits are excluded.
 - Screenshot-safe demo mode with fictional profile, tracker, and answer data that never overwrites the real local records.
 
 ## Privacy
 
 The extension is local-first. Profile data, settings, tracked applications, and answer memory are stored in Chrome extension storage and IndexedDB on your device.
+
+Settings → Block LinkedIn extension probes is enabled by default. An early page-context script rejects LinkedIn's `fetch()` calls to `chrome-extension:` resources, including in LinkedIn preload frames, before requests are issued. Ordinary web requests continue normally. Reload LinkedIn after loading/updating the extension or changing this setting. This blocks active fetch probes, not LinkedIn's separate scanning of extension references in page content, and does not guarantee a speed improvement.
 
 AI features are opt-in and require your own OpenAI API key. When enabled, the extension sends the relevant profile facts, job description text, application questions, and uploaded CV file data to OpenAI to draft answers or import profile fields. The API key is stored locally in Chrome extension storage.
 
@@ -59,6 +65,8 @@ It requests access to `https://api.openai.com/*` for optional AI features.
 ```powershell
 npm install
 npm run compile
+npm run test:backup
+node scripts/test-linkedin-probes.mjs
 npm run dev
 npm run build
 npm run zip
