@@ -8,6 +8,7 @@
     "build": "wxt build",
     "zip": "wxt zip",
     "compile": "tsc --noEmit",
+    "test:backup": "node scripts/test-backup.mjs",
     "postinstall": "wxt prepare"
   },
   "dependencies": {
@@ -24,6 +25,8 @@
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "5.2.0",
     "@wxt-dev/module-react": "1.2.2",
+    "esbuild": "0.28.1",
+    "fake-indexeddb": "6.2.5",
     "tailwindcss": "4.3.2",
     "typescript": "6.0.3",
     "vite": "7.3.6",
